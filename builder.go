@@ -106,6 +106,9 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 	if subBuilder.startStep == "" {
 		panic(fmt.Sprintf("OnFailureFlow %q: sub-flow must contain at least one step", name))
 	}
+	if _, err := subBuilder.Build(); err != nil {
+		panic(fmt.Sprintf("OnFailureFlow %q build: %v", name, err))
+	}
 
 	builder.subBuilders = append(builder.subBuilders, subBuilder)
 
@@ -188,6 +191,9 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 
 		if sub.startStep == "" {
 			panic(fmt.Sprintf("Fork %q: branch %d has no steps", name, i+1))
+		}
+		if _, err := sub.Build(); err != nil {
+			panic(fmt.Sprintf("invalid branch %d for Fork %q: %v", i+1, name, err))
 		}
 
 		builder.subBuilders = append(builder.subBuilders, sub)
