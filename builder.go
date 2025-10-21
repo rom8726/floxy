@@ -54,9 +54,19 @@ func (builder *Builder) WithMaxRetries(retries int) *Builder {
 	return builder
 }
 
-func (builder *Builder) OnFailure(compensationStep string) *Builder {
+func (builder *Builder) OnFailure(name, handler string) *Builder {
 	if builder.currentStep != "" {
-		builder.steps[builder.currentStep].OnFailure = compensationStep
+		onFailureStep := &StepDefinition{
+			Name:       name,
+			Type:       StepTypeTask,
+			Handler:    handler,
+			MaxRetries: 3,
+			Next:       []string{},
+			Metadata:   make(map[string]string),
+		}
+		builder.steps[name] = onFailureStep
+
+		builder.steps[builder.currentStep].OnFailure = name
 	}
 
 	return builder

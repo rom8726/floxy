@@ -27,7 +27,7 @@ func TestWorkflowBuilder(t *testing.T) {
 		wf, err := NewBuilder("saga-workflow", 1).
 			Step("step1", "handler1").
 			Step("step2", "handler2").
-			OnFailure("compensation2").
+			OnFailure("compensation2", "compensation2_handler").
 			Step("step3", "handler3").
 			Build()
 
@@ -55,15 +55,5 @@ func TestWorkflowBuilder(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, StepTypeParallel, wf.Definition.Steps["parallel"].Type)
 		assert.Len(t, wf.Definition.Steps["parallel"].Parallel, 3)
-	})
-
-	t.Run("invalid reference", func(t *testing.T) {
-		_, err := NewBuilder("invalid-workflow", 1).
-			Step("step1", "handler1").
-			OnFailure("nonexistent").
-			Build()
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown compensation step")
 	})
 }
