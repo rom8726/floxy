@@ -153,7 +153,7 @@ func (builder *Builder) ForkJoin(
 	}
 
 	if joinStrategy == "" {
-		joinStrategy = "all"
+		joinStrategy = JoinStrategyAll
 	}
 
 	joinStep := &StepDefinition{
