@@ -37,6 +37,10 @@ func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
 }
 
 func (builder *Builder) Step(name, handler string) *Builder {
+	if _, ok := builder.steps[name]; ok {
+		panic(fmt.Errorf("step %q already exists", name))
+	}
+
 	step := &StepDefinition{
 		Name:       name,
 		Type:       StepTypeTask,

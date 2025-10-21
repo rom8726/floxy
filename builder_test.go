@@ -72,7 +72,9 @@ func TestWorkflowBuilder(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, StepTypeParallel, wf.Definition.Steps["parallel"].Type)
-		assert.Len(t, wf.Definition.Steps["parallel"].Parallel, 3)
+		assert.ElementsMatch(t,
+			[]string{"task1", "task2", "task3"},
+			wf.Definition.Steps["parallel"].Parallel)
 	})
 
 	t.Run("fork flow", func(t *testing.T) {
@@ -80,16 +82,125 @@ func TestWorkflowBuilder(t *testing.T) {
 			Step("step1", "handler1").
 			Fork("fork",
 				func(branch1 *Builder) {
-					branch1.Step("step2", "handler2")
+					branch1.Step("a1", "h1").Step("a2", "h2")
 				},
 				func(branch2 *Builder) {
-					branch2.Step("step3", "handler3")
+					branch2.Step("b1", "h3")
 				},
 			).
+			JoinStep("join", []string{"a2", "b1"}, JoinStrategyAll).
+			Step("final", "final_handler").
 			Build()
 
 		require.NoError(t, err)
 		assert.Equal(t, StepTypeFork, wf.Definition.Steps["fork"].Type)
 		assert.Len(t, wf.Definition.Steps["fork"].Parallel, 2)
+		assert.Equal(t, StepTypeJoin, wf.Definition.Steps["join"].Type)
+		assert.ElementsMatch(t, []string{"a2", "b1"}, wf.Definition.Steps["join"].WaitFor)
+	})
+
+	t.Run("fork join sugar", func(t *testing.T) {
+		wf, err := NewBuilder("forkjoin-workflow", 1).
+			Step("step1", "handler1").
+			ForkJoin("fork",
+				[]func(b *Builder){
+					func(b *Builder) { b.Step("b1", "h1") },
+					func(b *Builder) { b.Step("b2", "h2") },
+				},
+				"join", JoinStrategyAll,
+			).
+			Step("next", "handler_next").
+			Build()
+
+		require.NoError(t, err)
+		assert.Equal(t, StepTypeFork, wf.Definition.Steps["fork"].Type)
+		assert.Equal(t, StepTypeJoin, wf.Definition.Steps["join"].Type)
+		assert.ElementsMatch(t, []string{"b1", "b2"}, wf.Definition.Steps["join"].WaitFor)
+	})
+
+	t.Run("error: duplicate step", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewBuilder("dup", 1).
+				Step("s1", "h1").
+				Step("s1", "h2")
+		})
+	})
+
+	t.Run("error: unknown next step", func(t *testing.T) {
+		builder := NewBuilder("invalid-next", 1)
+		builder.steps["a"] = &StepDefinition{
+			Name: "a", Type: StepTypeTask, Handler: "ha", Next: []string{"b"},
+		}
+		_, err := builder.Build()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at least one step is required")
+	})
+
+	t.Run("error: cycle detection", func(t *testing.T) {
+		builder := NewBuilder("cyclic", 1)
+		builder.Step("a", "ha").
+			Step("b", "hb")
+
+		// create a cycle manually
+		builder.steps["b"].Next = append(builder.steps["b"].Next, "a")
+
+		_, err := builder.Build()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cycle detected")
+	})
+
+	t.Run("error: invalid fork with one branch", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewBuilder("invalid-fork", 1).
+				Step("start", "h1").
+				Fork("fork", func(b *Builder) {
+					b.Step("branch", "h2")
+				})
+		})
+	})
+
+	t.Run("error: on failure flow without step", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewBuilder("noflow", 1).
+				OnFailureFlow("bad", func(b *Builder) {
+					b.Step("oops", "handler")
+				})
+		})
+	})
+
+	t.Run("error: subflow without steps", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewBuilder("emptyflow", 1).
+				Step("s1", "h1").
+				OnFailureFlow("empty", func(b *Builder) {})
+		})
+	})
+
+	t.Run("complex flow with fork, parallel, on-failure", func(t *testing.T) {
+		wf, err := NewBuilder("complex", 1).
+			Step("start", "init").
+			Fork("fork1",
+				func(b *Builder) {
+					b.Step("a1", "ha").
+						Parallel("p1",
+							NewTask("pa", "hpa"),
+							NewTask("pb", "hpb")).
+						Step("a2", "ha2")
+				},
+				func(b *Builder) {
+					b.Step("b1", "hb").
+						OnFailure("b_fail", "h_fail").
+						Step("b2", "hb2")
+				},
+			).
+			JoinStep("join", []string{"a2", "b2"}, JoinStrategyAll).
+			Step("final", "finish").
+			Build()
+
+		require.NoError(t, err)
+		assert.Equal(t, "complex-v1", wf.ID)
+		assert.Equal(t, StepTypeFork, wf.Definition.Steps["fork1"].Type)
+		assert.Equal(t, StepTypeJoin, wf.Definition.Steps["join"].Type)
+		assert.Contains(t, wf.Definition.Steps, "p1")
 	})
 }
