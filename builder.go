@@ -335,10 +335,28 @@ func (builder *Builder) detectCycles(
 
 	step, ok := steps[current]
 	if !ok {
+		recStack[current] = false
+
 		return nil
 	}
 
-	for _, next := range step.Next {
+	// collect all outgoing targets
+	var outs []string
+	outs = append(outs, step.Next...)
+	if step.OnFailure != "" {
+		outs = append(outs, step.OnFailure)
+	}
+	outs = append(outs, step.Parallel...)
+	outs = append(outs, step.WaitFor...)
+
+	for _, next := range outs {
+		if next == "" {
+			continue
+		}
+		if _, exists := steps[next]; !exists {
+			continue
+		}
+
 		if !visited[next] {
 			if err := builder.detectCycles(next, steps, visited, recStack); err != nil {
 				return err
