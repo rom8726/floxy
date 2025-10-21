@@ -102,6 +102,11 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 	}
 
 	fn(subBuilder)
+
+	if subBuilder.startStep == "" {
+		panic(fmt.Sprintf("OnFailureFlow %q: sub-flow must contain at least one step", name))
+	}
+
 	builder.subBuilders = append(builder.subBuilders, subBuilder)
 
 	for subStep, subDef := range subBuilder.steps {
@@ -122,17 +127,27 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 		Name:     name,
 		Type:     StepTypeParallel,
 		Metadata: make(map[string]string),
+		Parallel: []string{},
+	}
+
+	if _, ok := builder.steps[name]; ok {
+		panic(fmt.Sprintf("duplicate parallel step %q", name))
 	}
 	builder.steps[name] = parallelStep
 
-	builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
 
 	for i, task := range tasks {
 		if task.Name == "" {
-			panic(fmt.Sprintf("setupTasks[%d] in parallel %q missing step name", i, name))
+			panic(fmt.Sprintf("tasks[%d] in parallel %q missing step name", i, name))
 		}
 		if task.Handler == "" {
-			panic(fmt.Sprintf("setupTasks[%d] in parallel %q missing step handler", i, name))
+			panic(fmt.Sprintf("tasks[%d] in parallel %q missing step handler", i, name))
+		}
+		if _, ok := builder.steps[task.Name]; ok {
+			panic(fmt.Sprintf("duplicate step %q in parallel %q", task.Name, name))
 		}
 
 		builder.steps[task.Name] = task
@@ -168,7 +183,13 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 			version: builder.version,
 			steps:   make(map[string]*StepDefinition),
 		}
+
 		branchFn(sub)
+
+		if sub.startStep == "" {
+			panic(fmt.Sprintf("Fork %q: branch %d has no steps", name, i+1))
+		}
+
 		builder.subBuilders = append(builder.subBuilders, sub)
 
 		for stepName, stepDef := range sub.steps {
