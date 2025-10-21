@@ -35,6 +35,13 @@ const (
 	StepTypeJoin      StepType = "join"
 )
 
+type JoinStrategy string
+
+const (
+	JoinStrategyAll JoinStrategy = "all"
+	JoinStrategyAny JoinStrategy = "any"
+)
+
 type WorkflowDefinition struct {
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
@@ -58,7 +65,7 @@ type StepDefinition struct {
 	Condition    string            `json:"condition"`     // for conditional transitions
 	Parallel     []string          `json:"parallel"`      // for parallel steps (fork)
 	WaitFor      []string          `json:"wait_for"`      // for join, we are waiting for these steps to be completed
-	JoinStrategy string            `json:"join_strategy"` // "all" (default) or "any"
+	JoinStrategy JoinStrategy      `json:"join_strategy"` // "all" (default) or "any"
 	Metadata     map[string]string `json:"metadata"`
 }
 
