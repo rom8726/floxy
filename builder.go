@@ -38,7 +38,7 @@ func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
 	return builder
 }
 
-func (builder *Builder) Step(name, handler string) *Builder {
+func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder {
 	if builder.err != nil {
 		return builder
 	}
@@ -58,6 +58,10 @@ func (builder *Builder) Step(name, handler string) *Builder {
 		Metadata:   make(map[string]string),
 	}
 
+	for _, opt := range opts {
+		opt(step)
+	}
+
 	builder.steps[name] = step
 
 	if builder.startStep == "" {
@@ -71,6 +75,10 @@ func (builder *Builder) Step(name, handler string) *Builder {
 	builder.currentStep = name
 
 	return builder
+}
+
+func (builder *Builder) Then(name, handler string, opts ...StepOption) *Builder {
+	return builder.Step(name, handler, opts...)
 }
 
 func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Builder {
@@ -315,10 +323,6 @@ func (builder *Builder) ForkJoin(
 	waitFor := slices.Clone(forkStep.Parallel)
 
 	return builder.JoinStep(joinName, waitFor, joinStrategy)
-}
-
-func (builder *Builder) Then(name, handler string) *Builder {
-	return builder.Step(name, handler)
 }
 
 func (builder *Builder) Build() (*WorkflowDefinition, error) {
