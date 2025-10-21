@@ -58,7 +58,7 @@ func (builder *Builder) WithMaxRetries(retries int) *Builder {
 
 func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Builder)) *Builder {
 	if builder.currentStep == "" {
-		panic("OnFailureFlow called with no step")
+		panic(fmt.Sprintf("OnFailureFlow %q called with no step", name))
 	}
 
 	subBuilder := &Builder{
@@ -72,7 +72,7 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 
 	for subStep, subDef := range subBuilder.steps {
 		if _, ok := builder.steps[subStep]; ok {
-			panic("duplicate step " + subStep)
+			panic(fmt.Sprintf("duplicate step %q in on-failure flow %q", subStep, name))
 		}
 
 		builder.steps[subStep] = subDef
@@ -91,21 +91,39 @@ func (builder *Builder) WithMetadata(key, value string) *Builder {
 	return builder
 }
 
-func (builder *Builder) Parallel(name string, parallelSteps ...string) *Builder {
-	step := &StepDefinition{
-		Name:       name,
-		Type:       StepTypeParallel,
-		Handler:    "",
-		MaxRetries: 0,
-		Parallel:   parallelSteps,
-		Next:       []string{},
-		Metadata:   make(map[string]string),
+func (builder *Builder) ParallelFlow(name string, branches ...func(branch *Builder)) *Builder {
+	if builder.currentStep == "" {
+		panic(fmt.Sprintf("ParallelFlow %q called with no current step", name))
 	}
 
-	builder.steps[name] = step
+	parallelStep := &StepDefinition{
+		Name:     name,
+		Type:     StepTypeParallel,
+		Parallel: []string{},
+		Next:     []string{},
+		Metadata: make(map[string]string),
+	}
+	builder.steps[name] = parallelStep
 
-	if builder.currentStep != "" && builder.currentStep != name {
-		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+
+	for i, branchFn := range branches {
+		sub := &Builder{
+			name:    fmt.Sprintf("%s_branch_%d", builder.name, i+1),
+			version: builder.version,
+			steps:   make(map[string]*StepDefinition),
+		}
+		branchFn(sub)
+		builder.subBuilders = append(builder.subBuilders, sub)
+
+		for stepName, stepDef := range sub.steps {
+			if _, ok := builder.steps[stepName]; ok {
+				panic(fmt.Sprintf("duplicate step %q in parallel flow", stepName))
+			}
+			builder.steps[stepName] = stepDef
+		}
+
+		parallelStep.Parallel = append(parallelStep.Parallel, sub.startStep)
 	}
 
 	builder.currentStep = name

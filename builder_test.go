@@ -50,7 +50,17 @@ func TestWorkflowBuilder(t *testing.T) {
 	t.Run("parallel steps", func(t *testing.T) {
 		wf, err := NewBuilder("parallel-workflow", 1).
 			Step("step1", "handler1").
-			Parallel("parallel", "task1", "task2", "task3").
+			ParallelFlow("parallel",
+				func(branch *Builder) {
+					branch.Step("task1", "task1_handler")
+				},
+				func(branch *Builder) {
+					branch.Step("task2", "task2_handler")
+				},
+				func(branch *Builder) {
+					branch.Step("task3", "task3_handler")
+				},
+			).
 			Step("final", "final_handler").
 			Build()
 
