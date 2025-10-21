@@ -110,6 +110,18 @@ type WorkflowEvent struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
+type JoinState struct {
+	InstanceID   int64     `json:"instance_id"`
+	JoinStepName string    `json:"join_step_name"`
+	WaitingFor   []string  `json:"waiting_for"`
+	Completed    []string  `json:"completed"`
+	Failed       []string  `json:"failed"`
+	JoinStrategy string    `json:"join_strategy"`
+	IsReady      bool      `json:"is_ready"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type StepHandler interface {
 	Execute(stepCtx StepContext, input json.RawMessage) (json.RawMessage, error)
 	Name() string
