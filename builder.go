@@ -3,6 +3,11 @@ package floxy
 import (
 	"errors"
 	"fmt"
+	"slices"
+)
+
+const (
+	defaultMaxRetries = 3
 )
 
 type Builder struct {
@@ -12,15 +17,23 @@ type Builder struct {
 	startStep   string
 	currentStep string
 
-	subBuilders []*Builder
+	subBuilders       []*Builder
+	defaultMaxRetries int
 }
 
-func NewBuilder(name string, version int) *Builder {
-	return &Builder{
-		name:    name,
-		version: version,
-		steps:   make(map[string]*StepDefinition),
+func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
+	builder := &Builder{
+		name:              name,
+		version:           version,
+		steps:             make(map[string]*StepDefinition),
+		defaultMaxRetries: defaultMaxRetries,
 	}
+
+	for _, opt := range opts {
+		opt(builder)
+	}
+
+	return builder
 }
 
 func (builder *Builder) Step(name, handler string) *Builder {
@@ -28,7 +41,7 @@ func (builder *Builder) Step(name, handler string) *Builder {
 		Name:       name,
 		Type:       StepTypeTask,
 		Handler:    handler,
-		MaxRetries: 3,
+		MaxRetries: builder.defaultMaxRetries,
 		Next:       []string{},
 		Metadata:   make(map[string]string),
 	}
@@ -52,6 +65,27 @@ func (builder *Builder) WithMaxRetries(retries int) *Builder {
 	if builder.currentStep != "" {
 		builder.steps[builder.currentStep].MaxRetries = retries
 	}
+
+	return builder
+}
+
+func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Builder {
+	if builder.currentStep == "" {
+		panic(fmt.Sprintf("OnFailure %q called with no step", name))
+	}
+
+	compensation := &StepDefinition{
+		Name:       name,
+		Type:       StepTypeTask,
+		Handler:    handler,
+		MaxRetries: builder.defaultMaxRetries,
+	}
+	for _, opt := range opts {
+		opt(compensation)
+	}
+
+	builder.steps[name] = compensation
+	builder.steps[builder.currentStep].OnFailure = name
 
 	return builder
 }
@@ -83,29 +117,50 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 	return builder
 }
 
-func (builder *Builder) WithMetadata(key, value string) *Builder {
-	if builder.currentStep != "" {
-		builder.steps[builder.currentStep].Metadata[key] = value
-	}
-
-	return builder
-}
-
-func (builder *Builder) ParallelFlow(name string, branches ...func(branch *Builder)) *Builder {
-	if builder.currentStep == "" {
-		panic(fmt.Sprintf("ParallelFlow %q called with no current step", name))
-	}
-
+func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder {
 	parallelStep := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeParallel,
-		Parallel: []string{},
-		Next:     []string{},
 		Metadata: make(map[string]string),
 	}
 	builder.steps[name] = parallelStep
 
 	builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+
+	for i, task := range tasks {
+		if task.Name == "" {
+			panic(fmt.Sprintf("setupTasks[%d] in parallel %q missing step name", i, name))
+		}
+		if task.Handler == "" {
+			panic(fmt.Sprintf("setupTasks[%d] in parallel %q missing step handler", i, name))
+		}
+
+		builder.steps[task.Name] = task
+
+		parallelStep.Parallel = append(parallelStep.Parallel, task.Name)
+	}
+
+	builder.currentStep = name
+
+	return builder
+}
+
+func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Builder {
+	if len(branches) < 2 {
+		panic(fmt.Sprintf("ForkFlow %q called with count of branches < 2", name))
+	}
+
+	forkStep := &StepDefinition{
+		Name:     name,
+		Type:     StepTypeFork,
+		Metadata: make(map[string]string),
+	}
+
+	builder.steps[name] = forkStep
+
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
 
 	for i, branchFn := range branches {
 		sub := &Builder{
@@ -118,76 +173,12 @@ func (builder *Builder) ParallelFlow(name string, branches ...func(branch *Build
 
 		for stepName, stepDef := range sub.steps {
 			if _, ok := builder.steps[stepName]; ok {
-				panic(fmt.Sprintf("duplicate step %q in parallel flow", stepName))
+				panic(fmt.Sprintf("duplicate step %q in fork flow %q", stepName, name))
 			}
 			builder.steps[stepName] = stepDef
 		}
 
-		parallelStep.Parallel = append(parallelStep.Parallel, sub.startStep)
-	}
-
-	builder.currentStep = name
-
-	return builder
-}
-
-func (builder *Builder) ForkJoin(
-	forkName string,
-	parallelSteps []string,
-	joinName string,
-	joinStrategy JoinStrategy,
-) *Builder {
-	forkStep := &StepDefinition{
-		Name:       forkName,
-		Type:       StepTypeFork,
-		Handler:    "",
-		MaxRetries: 0,
-		Parallel:   parallelSteps,
-		Next:       []string{joinName},
-		Metadata:   make(map[string]string),
-	}
-	builder.steps[forkName] = forkStep
-
-	if builder.currentStep != "" && builder.currentStep != forkName {
-		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, forkName)
-	}
-
-	if joinStrategy == "" {
-		joinStrategy = JoinStrategyAll
-	}
-
-	joinStep := &StepDefinition{
-		Name:         joinName,
-		Type:         StepTypeJoin,
-		Handler:      "",
-		MaxRetries:   0,
-		WaitFor:      parallelSteps,
-		JoinStrategy: joinStrategy,
-		Next:         []string{},
-		Metadata:     make(map[string]string),
-	}
-	builder.steps[joinName] = joinStep
-
-	builder.currentStep = joinName
-
-	return builder
-}
-
-func (builder *Builder) ForkStep(name string, parallelSteps ...string) *Builder {
-	step := &StepDefinition{
-		Name:       name,
-		Type:       StepTypeFork,
-		Handler:    "",
-		MaxRetries: 0,
-		Parallel:   parallelSteps,
-		Next:       []string{},
-		Metadata:   make(map[string]string),
-	}
-
-	builder.steps[name] = step
-
-	if builder.currentStep != "" && builder.currentStep != name {
-		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+		forkStep.Parallel = append(forkStep.Parallel, sub.startStep)
 	}
 
 	builder.currentStep = name
@@ -203,11 +194,8 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 	step := &StepDefinition{
 		Name:         name,
 		Type:         StepTypeJoin,
-		Handler:      "",
-		MaxRetries:   0,
 		WaitFor:      waitFor,
 		JoinStrategy: strategy,
-		Next:         []string{},
 		Metadata:     make(map[string]string),
 	}
 
@@ -222,16 +210,21 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 	return builder
 }
 
-func (builder *Builder) Then(name, handler string) *Builder {
-	return builder.Step(name, handler)
+func (builder *Builder) ForkJoin(
+	forkName string,
+	branches []func(branch *Builder),
+	joinName string,
+	joinStrategy JoinStrategy,
+) *Builder {
+	_ = builder.Fork(forkName, branches...)
+	forkStep := builder.steps[forkName]
+	waitFor := slices.Clone(forkStep.Parallel)
+
+	return builder.JoinStep(joinName, waitFor, joinStrategy)
 }
 
-func (builder *Builder) Fork(branches ...string) *Builder {
-	if builder.currentStep != "" {
-		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, branches...)
-	}
-
-	return builder
+func (builder *Builder) Then(name, handler string) *Builder {
+	return builder.Step(name, handler)
 }
 
 func (builder *Builder) Build() (*WorkflowDefinition, error) {
@@ -331,4 +324,20 @@ func (builder *Builder) detectCycles(
 	recStack[current] = false
 
 	return nil
+}
+
+func NewTask(name, handler string, opts ...StepOption) *StepDefinition {
+	step := &StepDefinition{
+		Name:       name,
+		Handler:    handler,
+		Type:       StepTypeTask,
+		Metadata:   make(map[string]string),
+		MaxRetries: defaultMaxRetries,
+	}
+
+	for _, opt := range opts {
+		opt(step)
+	}
+
+	return step
 }

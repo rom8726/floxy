@@ -23,7 +23,19 @@ func TestWorkflowBuilder(t *testing.T) {
 		assert.Len(t, wf.Definition.Steps, 3)
 	})
 
-	t.Run("with compensation", func(t *testing.T) {
+	t.Run("with compensation task", func(t *testing.T) {
+		wf, err := NewBuilder("compensation-task", 1).
+			Step("step1", "handler1").
+			Step("step2", "handler2").
+			OnFailure("compensation2", "compensation2_handler").
+			Step("step3", "handler3").
+			Build()
+
+		require.NoError(t, err)
+		assert.Equal(t, "compensation2", wf.Definition.Steps["step2"].OnFailure)
+	})
+
+	t.Run("with compensation flow", func(t *testing.T) {
 		wf, err := NewBuilder("saga-workflow", 1).
 			Step("step1", "handler1").
 			Step("step2", "handler2").
@@ -50,16 +62,10 @@ func TestWorkflowBuilder(t *testing.T) {
 	t.Run("parallel steps", func(t *testing.T) {
 		wf, err := NewBuilder("parallel-workflow", 1).
 			Step("step1", "handler1").
-			ParallelFlow("parallel",
-				func(branch *Builder) {
-					branch.Step("task1", "task1_handler")
-				},
-				func(branch *Builder) {
-					branch.Step("task2", "task2_handler")
-				},
-				func(branch *Builder) {
-					branch.Step("task3", "task3_handler")
-				},
+			Parallel("parallel",
+				NewTask("task1", "handler1"),
+				NewTask("task2", "handler2"),
+				NewTask("task3", "handler3"),
 			).
 			Step("final", "final_handler").
 			Build()
@@ -67,5 +73,23 @@ func TestWorkflowBuilder(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, StepTypeParallel, wf.Definition.Steps["parallel"].Type)
 		assert.Len(t, wf.Definition.Steps["parallel"].Parallel, 3)
+	})
+
+	t.Run("fork flow", func(t *testing.T) {
+		wf, err := NewBuilder("fork-workflow", 1).
+			Step("step1", "handler1").
+			Fork("fork",
+				func(branch1 *Builder) {
+					branch1.Step("step2", "handler2")
+				},
+				func(branch2 *Builder) {
+					branch2.Step("step3", "handler3")
+				},
+			).
+			Build()
+
+		require.NoError(t, err)
+		assert.Equal(t, StepTypeFork, wf.Definition.Steps["fork"].Type)
+		assert.Len(t, wf.Definition.Steps["fork"].Parallel, 2)
 	})
 }
