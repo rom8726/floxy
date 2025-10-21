@@ -227,25 +227,25 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 	for stepName, stepDef := range def.Definition.Steps {
 		for _, nextStep := range stepDef.Next {
 			if _, ok := def.Definition.Steps[nextStep]; !ok {
-				return fmt.Errorf("step %s references unknown step: %s", stepName, nextStep)
+				return fmt.Errorf("step %q references unknown step: %q", stepName, nextStep)
 			}
 		}
 
 		if stepDef.OnFailure != "" {
 			if _, ok := def.Definition.Steps[stepDef.OnFailure]; !ok {
-				return fmt.Errorf("step %s references unknown compensation step: %s",
+				return fmt.Errorf("step %q references unknown compensation step: %q",
 					stepName, stepDef.OnFailure)
 			}
 		}
 
 		for _, parallelStep := range stepDef.Parallel {
 			if _, ok := def.Definition.Steps[parallelStep]; !ok {
-				return fmt.Errorf("step %s references unknown parallel step: %s", stepName, parallelStep)
+				return fmt.Errorf("step %q references unknown parallel step: %q", stepName, parallelStep)
 			}
 		}
 
 		if stepDef.Type == StepTypeTask && stepDef.Handler == "" {
-			return fmt.Errorf("task step %s must have a handler", stepName)
+			return fmt.Errorf("task step %q must have a handler", stepName)
 		}
 	}
 
