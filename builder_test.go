@@ -27,12 +27,14 @@ func TestWorkflowBuilder(t *testing.T) {
 		wf, err := NewBuilder("saga-workflow", 1).
 			Step("step1", "handler1").
 			Step("step2", "handler2").
-			OnFailure("compensation2", "compensation2_handler").
+			OnFailureFlow("compensation2", func(failureBuilder *Builder) {
+				failureBuilder.Step("compensation2_step1", "compensation2_handler1")
+			}).
 			Step("step3", "handler3").
 			Build()
 
 		require.NoError(t, err)
-		assert.Equal(t, "compensation2", wf.Definition.Steps["step2"].OnFailure)
+		assert.Equal(t, "compensation2_step1", wf.Definition.Steps["step2"].OnFailure)
 	})
 
 	t.Run("with max retries", func(t *testing.T) {

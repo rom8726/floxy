@@ -11,6 +11,8 @@ type Builder struct {
 	steps       map[string]*StepDefinition
 	startStep   string
 	currentStep string
+
+	subBuilders []*Builder
 }
 
 func NewBuilder(name string, version int) *Builder {
@@ -54,20 +56,29 @@ func (builder *Builder) WithMaxRetries(retries int) *Builder {
 	return builder
 }
 
-func (builder *Builder) OnFailure(name, handler string) *Builder {
-	if builder.currentStep != "" {
-		onFailureStep := &StepDefinition{
-			Name:       name,
-			Type:       StepTypeTask,
-			Handler:    handler,
-			MaxRetries: 3,
-			Next:       []string{},
-			Metadata:   make(map[string]string),
-		}
-		builder.steps[name] = onFailureStep
-
-		builder.steps[builder.currentStep].OnFailure = name
+func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Builder)) *Builder {
+	if builder.currentStep == "" {
+		panic("OnFailureFlow called with no step")
 	}
+
+	subBuilder := &Builder{
+		name:    builder.name + "_onfailure_" + name,
+		version: builder.version,
+		steps:   make(map[string]*StepDefinition),
+	}
+
+	fn(subBuilder)
+	builder.subBuilders = append(builder.subBuilders, subBuilder)
+
+	for subStep, subDef := range subBuilder.steps {
+		if _, ok := builder.steps[subStep]; ok {
+			panic("duplicate step " + subStep)
+		}
+
+		builder.steps[subStep] = subDef
+	}
+
+	builder.steps[builder.currentStep].OnFailure = subBuilder.startStep
 
 	return builder
 }
@@ -211,7 +222,7 @@ func (builder *Builder) Build() (*WorkflowDefinition, error) {
 	}
 
 	if builder.startStep == "" {
-		return nil, errors.New("at least one step is required")
+		return nil, fmt.Errorf("builder %q: at least one step is required", builder.name)
 	}
 
 	id := fmt.Sprintf("%s-v%d", builder.name, builder.version)
@@ -230,6 +241,12 @@ func (builder *Builder) Build() (*WorkflowDefinition, error) {
 		return nil, err
 	}
 
+	for _, sub := range builder.subBuilders {
+		if _, err := sub.Build(); err != nil {
+			return nil, err
+		}
+	}
+
 	return def, nil
 }
 
@@ -237,32 +254,37 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 	for stepName, stepDef := range def.Definition.Steps {
 		for _, nextStep := range stepDef.Next {
 			if _, ok := def.Definition.Steps[nextStep]; !ok {
-				return fmt.Errorf("step %q references unknown step: %q", stepName, nextStep)
+				return fmt.Errorf("builder %q: step %q references unknown step: %q",
+					builder.name, stepName, nextStep)
 			}
 		}
 
 		if stepDef.OnFailure != "" {
 			if _, ok := def.Definition.Steps[stepDef.OnFailure]; !ok {
-				return fmt.Errorf("step %q references unknown compensation step: %q",
-					stepName, stepDef.OnFailure)
+				return fmt.Errorf("builder %q: step %q references unknown compensation step: %q",
+					builder.name, stepName, stepDef.OnFailure)
 			}
 		}
 
 		for _, parallelStep := range stepDef.Parallel {
 			if _, ok := def.Definition.Steps[parallelStep]; !ok {
-				return fmt.Errorf("step %q references unknown parallel step: %q", stepName, parallelStep)
+				return fmt.Errorf("builder %q: step %q references unknown parallel step: %q",
+					builder.name, stepName, parallelStep)
 			}
 		}
 
 		if stepDef.Type == StepTypeTask && stepDef.Handler == "" {
-			return fmt.Errorf("task step %q must have a handler", stepName)
+			return fmt.Errorf("builder %q: task step %q must have a handler", builder.name, stepName)
 		}
 	}
 
 	visited := make(map[string]bool)
 	err := builder.detectCycles(def.Definition.Start, def.Definition.Steps, visited, make(map[string]bool))
+	if err != nil {
+		return fmt.Errorf("builder %q: %w", builder.name, err)
+	}
 
-	return err
+	return nil
 }
 
 func (builder *Builder) detectCycles(
