@@ -268,7 +268,7 @@ func (store *Store) CreateJoinState(
 	instanceID int64,
 	joinStepName string,
 	waitingFor []string,
-	strategy string,
+	strategy JoinStrategy,
 ) error {
 	const query = `
 INSERT INTO workflow_join_state (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)

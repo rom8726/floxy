@@ -19,6 +19,8 @@ type Builder struct {
 
 	subBuilders       []*Builder
 	defaultMaxRetries int
+
+	err error
 }
 
 func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
@@ -37,8 +39,14 @@ func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
 }
 
 func (builder *Builder) Step(name, handler string) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
 	if _, ok := builder.steps[name]; ok {
-		panic(fmt.Errorf("step %q already exists", name))
+		builder.err = fmt.Errorf("step %q already exists", name)
+
+		return builder
 	}
 
 	step := &StepDefinition{
@@ -65,17 +73,15 @@ func (builder *Builder) Step(name, handler string) *Builder {
 	return builder
 }
 
-func (builder *Builder) WithMaxRetries(retries int) *Builder {
-	if builder.currentStep != "" {
-		builder.steps[builder.currentStep].MaxRetries = retries
+func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Builder {
+	if builder.err != nil {
+		return builder
 	}
 
-	return builder
-}
-
-func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Builder {
 	if builder.currentStep == "" {
-		panic(fmt.Sprintf("OnFailure %q called with no step", name))
+		builder.err = fmt.Errorf("OnFailure %q called with no step", name)
+
+		return builder
 	}
 
 	compensation := &StepDefinition{
@@ -95,8 +101,14 @@ func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Bui
 }
 
 func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Builder)) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
 	if builder.currentStep == "" {
-		panic(fmt.Sprintf("OnFailureFlow %q called with no step", name))
+		builder.err = fmt.Errorf("OnFailureFlow %q called with no step", name)
+
+		return builder
 	}
 
 	subBuilder := &Builder{
@@ -108,17 +120,23 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 	fn(subBuilder)
 
 	if subBuilder.startStep == "" {
-		panic(fmt.Sprintf("OnFailureFlow %q: sub-flow must contain at least one step", name))
+		builder.err = fmt.Errorf("OnFailureFlow %q: sub-flow must contain at least one step", name)
+
+		return builder
 	}
 	if _, err := subBuilder.Build(); err != nil {
-		panic(fmt.Sprintf("OnFailureFlow %q build: %v", name, err))
+		builder.err = fmt.Errorf("OnFailureFlow %q build: %v", name, err)
+
+		return builder
 	}
 
 	builder.subBuilders = append(builder.subBuilders, subBuilder)
 
 	for subStep, subDef := range subBuilder.steps {
 		if _, ok := builder.steps[subStep]; ok {
-			panic(fmt.Sprintf("duplicate step %q in on-failure flow %q", subStep, name))
+			builder.err = fmt.Errorf("duplicate step %q in on-failure flow %q", subStep, name)
+
+			return builder
 		}
 
 		builder.steps[subStep] = subDef
@@ -130,6 +148,10 @@ func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Build
 }
 
 func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
 	parallelStep := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeParallel,
@@ -138,7 +160,9 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 	}
 
 	if _, ok := builder.steps[name]; ok {
-		panic(fmt.Sprintf("duplicate parallel step %q", name))
+		builder.err = fmt.Errorf("duplicate parallel step %q", name)
+
+		return builder
 	}
 	builder.steps[name] = parallelStep
 
@@ -148,13 +172,19 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 
 	for i, task := range tasks {
 		if task.Name == "" {
-			panic(fmt.Sprintf("tasks[%d] in parallel %q missing step name", i, name))
+			builder.err = fmt.Errorf("tasks[%d] in parallel %q missing step name", i, name)
+
+			return builder
 		}
 		if task.Handler == "" {
-			panic(fmt.Sprintf("tasks[%d] in parallel %q missing step handler", i, name))
+			builder.err = fmt.Errorf("tasks[%d] in parallel %q missing step handler", i, name)
+
+			return builder
 		}
 		if _, ok := builder.steps[task.Name]; ok {
-			panic(fmt.Sprintf("duplicate step %q in parallel %q", task.Name, name))
+			builder.err = fmt.Errorf("duplicate step %q in parallel %q", task.Name, name)
+
+			return builder
 		}
 
 		builder.steps[task.Name] = task
@@ -168,8 +198,14 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 }
 
 func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
 	if len(branches) < 2 {
-		panic(fmt.Sprintf("ForkFlow %q called with count of branches < 2", name))
+		builder.err = fmt.Errorf("ForkFlow %q called with count of branches < 2", name)
+
+		return builder
 	}
 
 	forkStep := &StepDefinition{
@@ -194,18 +230,25 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 		branchFn(sub)
 
 		if sub.startStep == "" {
-			panic(fmt.Sprintf("Fork %q: branch %d has no steps", name, i+1))
+			builder.err = fmt.Errorf("Fork %q: branch %d has no steps", name, i+1)
+
+			return builder
 		}
 		if _, err := sub.Build(); err != nil {
-			panic(fmt.Sprintf("invalid branch %d for Fork %q: %v", i+1, name, err))
+			builder.err = fmt.Errorf("invalid branch %d for Fork %q: %v", i+1, name, err)
+
+			return builder
 		}
 
 		builder.subBuilders = append(builder.subBuilders, sub)
 
 		for stepName, stepDef := range sub.steps {
 			if _, ok := builder.steps[stepName]; ok {
-				panic(fmt.Sprintf("duplicate step %q in fork flow %q", stepName, name))
+				builder.err = fmt.Errorf("duplicate step %q in fork flow %q", stepName, name)
+
+				return builder
 			}
+
 			builder.steps[stepName] = stepDef
 		}
 
@@ -218,6 +261,22 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 }
 
 func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStrategy) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
+	if builder.currentStep == "" {
+		builder.err = fmt.Errorf("JoinStep %q called with no step", name)
+
+		return builder
+	}
+
+	if name == "" {
+		builder.err = errors.New("JoinStep called with no name")
+
+		return builder
+	}
+
 	if strategy == "" {
 		strategy = JoinStrategyAll
 	}
@@ -247,6 +306,10 @@ func (builder *Builder) ForkJoin(
 	joinName string,
 	joinStrategy JoinStrategy,
 ) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
 	_ = builder.Fork(forkName, branches...)
 	forkStep := builder.steps[forkName]
 	waitFor := slices.Clone(forkStep.Parallel)
@@ -259,6 +322,10 @@ func (builder *Builder) Then(name, handler string) *Builder {
 }
 
 func (builder *Builder) Build() (*WorkflowDefinition, error) {
+	if builder.err != nil {
+		return nil, builder.err
+	}
+
 	if builder.name == "" {
 		return nil, errors.New("workflow name is required")
 	}

@@ -49,16 +49,6 @@ func TestWorkflowBuilder(t *testing.T) {
 		assert.Equal(t, "compensation2_step1", wf.Definition.Steps["step2"].OnFailure)
 	})
 
-	t.Run("with max retries", func(t *testing.T) {
-		wf, err := NewBuilder("retry-workflow", 1).
-			Step("step1", "handler1").
-			WithMaxRetries(5).
-			Build()
-
-		require.NoError(t, err)
-		assert.Equal(t, 5, wf.Definition.Steps["step1"].MaxRetries)
-	})
-
 	t.Run("parallel steps", func(t *testing.T) {
 		wf, err := NewBuilder("parallel-workflow", 1).
 			Step("step1", "handler1").
@@ -119,11 +109,10 @@ func TestWorkflowBuilder(t *testing.T) {
 	})
 
 	t.Run("error: duplicate step", func(t *testing.T) {
-		assert.Panics(t, func() {
-			NewBuilder("dup", 1).
-				Step("s1", "h1").
-				Step("s1", "h2")
-		})
+		_, err := NewBuilder("dup", 1).
+			Step("s1", "h1").
+			Step("s1", "h2").Build()
+		require.Error(t, err)
 	})
 
 	t.Run("error: unknown next step", func(t *testing.T) {
@@ -150,30 +139,27 @@ func TestWorkflowBuilder(t *testing.T) {
 	})
 
 	t.Run("error: invalid fork with one branch", func(t *testing.T) {
-		assert.Panics(t, func() {
-			NewBuilder("invalid-fork", 1).
-				Step("start", "h1").
-				Fork("fork", func(b *Builder) {
-					b.Step("branch", "h2")
-				})
-		})
+		_, err := NewBuilder("invalid-fork", 1).
+			Step("start", "h1").
+			Fork("fork", func(b *Builder) {
+				b.Step("branch", "h2")
+			}).Build()
+		require.Error(t, err)
 	})
 
 	t.Run("error: on failure flow without step", func(t *testing.T) {
-		assert.Panics(t, func() {
-			NewBuilder("noflow", 1).
-				OnFailureFlow("bad", func(b *Builder) {
-					b.Step("oops", "handler")
-				})
-		})
+		_, err := NewBuilder("noflow", 1).
+			OnFailureFlow("bad", func(b *Builder) {
+				b.Step("oops", "handler")
+			}).Build()
+		require.Error(t, err)
 	})
 
 	t.Run("error: subflow without steps", func(t *testing.T) {
-		assert.Panics(t, func() {
-			NewBuilder("emptyflow", 1).
-				Step("s1", "h1").
-				OnFailureFlow("empty", func(b *Builder) {})
-		})
+		_, err := NewBuilder("emptyflow", 1).
+			Step("s1", "h1").
+			OnFailureFlow("empty", func(b *Builder) {}).Build()
+		require.Error(t, err)
 	})
 
 	t.Run("complex flow with fork, parallel, on-failure", func(t *testing.T) {
