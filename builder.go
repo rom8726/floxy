@@ -225,6 +225,10 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 
 	builder.steps[name] = forkStep
 
+	if builder.startStep == "" {
+		builder.startStep = name
+	}
+
 	if builder.currentStep != "" && builder.currentStep != name {
 		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
 	}

@@ -38,34 +38,45 @@ func (engine *Engine) RegisterWorkflow(ctx context.Context, def *WorkflowDefinit
 }
 
 func (engine *Engine) Start(ctx context.Context, workflowID string, input json.RawMessage) (int64, error) {
-	def, err := engine.store.GetWorkflowDefinition(ctx, workflowID)
-	if err != nil {
-		return 0, fmt.Errorf("get workflow definition: %w", err)
-	}
+	var instanceID int64
 
-	instance, err := engine.store.CreateInstance(ctx, workflowID, input)
-	if err != nil {
-		return 0, fmt.Errorf("create instance: %w", err)
-	}
+	err := engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		def, err := engine.store.GetWorkflowDefinition(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowStarted, map[string]any{
-		KeyWorkflowID: workflowID,
+		instance, err := engine.store.CreateInstance(ctx, workflowID, input)
+		if err != nil {
+			return fmt.Errorf("create instance: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowStarted, map[string]any{
+			KeyWorkflowID: workflowID,
+		})
+
+		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusRunning, nil, nil); err != nil {
+			return fmt.Errorf("update status: %w", err)
+		}
+
+		startStep := def.Definition.Start
+		if startStep == "" {
+			return errors.New("no start step defined")
+		}
+
+		if err := engine.enqueueNextSteps(ctx, instance.ID, []string{startStep}, input); err != nil {
+			return fmt.Errorf("enqueue start step: %w", err)
+		}
+
+		instanceID = instance.ID
+
+		return nil
 	})
-
-	if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusRunning, nil, nil); err != nil {
-		return 0, fmt.Errorf("update status: %w", err)
+	if err != nil {
+		return 0, err
 	}
 
-	startStep := def.Definition.Start
-	if startStep == "" {
-		return 0, errors.New("no start step defined")
-	}
-
-	if err := engine.enqueueNextSteps(ctx, instance.ID, []string{startStep}, input); err != nil {
-		return 0, fmt.Errorf("enqueue start step: %w", err)
-	}
-
-	return instance.ID, nil
+	return instanceID, nil
 }
 
 func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) error {
