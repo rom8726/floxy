@@ -775,7 +775,19 @@ func (engine *Engine) rollbackStepChain(
 	// Handle parallel steps (fork branches)
 	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
 		for _, parallelStepName := range stepDef.Parallel {
-			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
+			if err := engine.rollbackStepChain(
+				ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	// For parallel branches, also rollback all subsequent steps in the chain
+	if isParallel {
+		// Rollback all next steps in the parallel branch
+		for _, nextStepName := range stepDef.Next {
+			if err := engine.rollbackStepChain(
+				ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
 				return err
 			}
 		}

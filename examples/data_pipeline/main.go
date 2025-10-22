@@ -211,6 +211,18 @@ func (h *ReportGeneratorHandler) Execute(ctx context.Context, stepCtx floxy.Step
 	return json.Marshal(result)
 }
 
+type CompensationHandler struct{}
+
+func (h *CompensationHandler) Name() string {
+	return "compensation"
+}
+
+func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, input json.RawMessage) (json.RawMessage, error) {
+	log.Printf("Compensation step for %q", stepCtx.StepName())
+
+	return input, nil
+}
+
 func getCategory(value float64) string {
 	switch {
 	case value < 20:
@@ -277,6 +289,7 @@ func main() {
 	engine.RegisterHandler(&DataTransformerHandler{})
 	engine.RegisterHandler(&DataAggregatorHandler{})
 	engine.RegisterHandler(&ReportGeneratorHandler{})
+	engine.RegisterHandler(&CompensationHandler{})
 
 	workflowDef, err := floxy.NewBuilder("data-pipeline", 1).
 		Fork("extract-data",
@@ -288,7 +301,8 @@ func main() {
 			},
 			func(branch *floxy.Builder) {
 				branch.Step("extract-source3", "data-extractor", floxy.WithStepMaxRetries(2)).
-					Then("extract-source4", "data-extractor", floxy.WithStepMaxRetries(0))
+					Then("extract-source4", "data-extractor", floxy.WithStepMaxRetries(0)).
+					OnFailure("extract-source4-failure", "compensation", floxy.WithStepMaxRetries(0))
 			},
 		).
 		JoinStep("join-data", []string{"extract-source1", "extract-source2", "extract-source3"}, floxy.JoinStrategyAll).
