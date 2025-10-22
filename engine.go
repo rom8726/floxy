@@ -422,7 +422,7 @@ func (engine *Engine) handleStepFailure(
 	// Try to rollback to save point before handling failure
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err == nil {
-		if rollbackErr := engine.rollbackToSavePoint(ctx, instance.ID, step, def); rollbackErr != nil {
+		if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
 				KeyStepName: step.StepName,
@@ -682,7 +682,7 @@ func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {
 	return nil
 }
 
-func (engine *Engine) rollbackToSavePoint(
+func (engine *Engine) rollbackToSavePointOrRoot(
 	ctx context.Context,
 	instanceID int64,
 	failedStep *WorkflowStep,
