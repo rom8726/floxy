@@ -271,7 +271,8 @@ func (store *Store) CreateJoinState(
 	strategy JoinStrategy,
 ) error {
 	const query = `
-INSERT INTO workflows.workflow_join_state (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)
+INSERT INTO workflows.workflow_join_state
+    (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $5)
 ON CONFLICT (instance_id, join_step_name) DO NOTHING`
 
