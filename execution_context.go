@@ -34,8 +34,8 @@ func (c *executionContext) GetVariable(key string) (string, bool) {
 	return val, ok
 }
 
-func (c *executionContext) SetVariable(key string, value string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.variables[key] = value
-}
+//func (c *executionContext) SetVariable(key string, value string) {
+//	c.mu.Lock()
+//	defer c.mu.Unlock()
+//	c.variables[key] = value
+//}

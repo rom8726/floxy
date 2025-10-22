@@ -15,5 +15,5 @@ type StepContext interface {
 	StepName() string
 	RetryCount() int
 	GetVariable(key string) (string, bool)
-	SetVariable(key string, value string)
+	//SetVariable(key string, value string)
 }
