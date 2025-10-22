@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_definitions (
     UNIQUE(name, version)
 );
 
-CREATE INDEX idx_workflow_definitions_name ON workflows.workflow_definitions(name);
+CREATE INDEX IF NOT EXISTS idx_workflow_definitions_name ON workflows.workflow_definitions(name);
 
 CREATE TABLE IF NOT EXISTS workflows.workflow_instances (
     id BIGSERIAL PRIMARY KEY,
@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_instances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_instances_workflow_id ON workflows.workflow_instances(workflow_id);
-CREATE INDEX idx_workflow_instances_status ON workflows.workflow_instances(status);
-CREATE INDEX idx_workflow_instances_created_at ON workflows.workflow_instances(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_workflow_id ON workflows.workflow_instances(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_status ON workflows.workflow_instances(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_created_at ON workflows.workflow_instances(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS workflows.workflow_steps (
     id BIGSERIAL PRIMARY KEY,
@@ -44,9 +44,9 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_steps (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_steps_instance_id ON workflows.workflow_steps(instance_id);
-CREATE INDEX idx_workflow_steps_status ON workflows.workflow_steps(status);
-CREATE INDEX idx_workflow_steps_step_name ON workflows.workflow_steps(step_name);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_instance_id ON workflows.workflow_steps(instance_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_status ON workflows.workflow_steps(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_step_name ON workflows.workflow_steps(step_name);
 
 CREATE TABLE IF NOT EXISTS workflows.workflow_join_state (
     id BIGSERIAL PRIMARY KEY,
@@ -62,8 +62,7 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_join_state (
     UNIQUE(instance_id, join_step_name)
 );
 
-CREATE INDEX idx_workflow_join_state_instance ON workflows.workflow_join_state(instance_id);
-CREATE INDEX idx_workflow_join_state_ready ON workflows.workflow_join_state(is_ready);
+CREATE INDEX IF NOT EXISTS idx_workflow_join_state_instance ON workflows.workflow_join_state(instance_id);
 
 CREATE TABLE IF NOT EXISTS workflows.workflow_queue (
     id BIGSERIAL PRIMARY KEY,
@@ -75,9 +74,9 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_queue (
     priority INT NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_workflow_queue_scheduled ON workflows.workflow_queue(scheduled_at, priority DESC)
+CREATE INDEX IF NOT EXISTS idx_workflow_queue_scheduled ON workflows.workflow_queue(scheduled_at, priority DESC)
     WHERE attempted_at IS NULL;
-CREATE INDEX idx_workflow_queue_instance_id ON workflows.workflow_queue(instance_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_queue_instance_id ON workflows.workflow_queue(instance_id);
 
 CREATE TABLE IF NOT EXISTS workflows.workflow_events (
     id BIGSERIAL PRIMARY KEY,
@@ -88,9 +87,9 @@ CREATE TABLE IF NOT EXISTS workflows.workflow_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_events_instance_id ON workflows.workflow_events(instance_id);
-CREATE INDEX idx_workflow_events_created_at ON workflows.workflow_events(created_at DESC);
-CREATE INDEX idx_workflow_events_event_type ON workflows.workflow_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_workflow_events_instance_id ON workflows.workflow_events(instance_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_events_created_at ON workflows.workflow_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_events_event_type ON workflows.workflow_events(event_type);
 
 CREATE OR REPLACE FUNCTION workflows.update_updated_at_column()
     RETURNS TRIGGER AS $$
