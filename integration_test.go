@@ -19,8 +19,8 @@ func setupTestDatabase(t *testing.T) (testcontainers.Container, *pgxpool.Pool) {
 	ctx := context.Background()
 
 	// Start PostgreSQL container
-	postgresContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:17-alpine"),
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:17-alpine",
 		postgres.WithDatabase("floxy"),
 		postgres.WithUsername("user"),
 		postgres.WithPassword("password"),
@@ -62,7 +62,7 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	container, pool := setupTestDatabase(t)
 	defer func() {
 		pool.Close()
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}()
 
 	ctx := context.Background()
@@ -141,7 +141,7 @@ func TestIntegration_Ecommerce(t *testing.T) {
 	container, pool := setupTestDatabase(t)
 	defer func() {
 		pool.Close()
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}()
 
 	ctx := context.Background()
@@ -226,7 +226,7 @@ func TestIntegration_Microservices(t *testing.T) {
 	container, pool := setupTestDatabase(t)
 	defer func() {
 		pool.Close()
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}()
 
 	ctx := context.Background()
@@ -328,7 +328,7 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	container, pool := setupTestDatabase(t)
 	defer func() {
 		pool.Close()
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}()
 
 	ctx := context.Background()
@@ -413,7 +413,7 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 	container, pool := setupTestDatabase(t)
 	defer func() {
 		pool.Close()
-		container.Terminate(context.Background())
+		_ = container.Terminate(context.Background())
 	}()
 
 	ctx := context.Background()
