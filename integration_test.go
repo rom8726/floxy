@@ -297,17 +297,26 @@ func TestIntegration_Microservices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, instanceID, int64(0))
 
-	// Process workflow
-	for i := 0; i < 100; i++ {
-		empty, err := engine.ExecuteNext(ctx, "worker1")
-		if err != nil {
-			t.Logf("ExecuteNext error: %v", err)
+	// Process workflow with timeout
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("Test timeout: workflow did not complete in 30 seconds")
+		case <-ticker.C:
+			empty, err := engine.ExecuteNext(ctx, "worker1")
+			if err != nil {
+				t.Logf("ExecuteNext error: %v", err)
+			}
+			if empty {
+				goto done
+			}
 		}
-		if empty {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
+done:
 
 	// Check final status
 	status, err := engine.GetStatus(ctx, instanceID)
@@ -330,7 +339,7 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	// Register handlers
 	engine.RegisterHandler(&PaymentHandler{})
 	engine.RegisterHandler(&InventoryHandler{})
-	engine.RegisterHandler(&ShippingHandler{})
+	engine.RegisterHandler(&ConditionalShippingHandler{})
 	engine.RegisterHandler(&NotificationHandler{})
 	engine.RegisterHandler(&CompensationHandler{})
 
@@ -716,6 +725,31 @@ func (h *FailingShippingHandler) Execute(ctx context.Context, stepCtx StepContex
 	return nil, fmt.Errorf("shipping service unavailable")
 }
 
+type ConditionalShippingHandler struct{}
+
+func (h *ConditionalShippingHandler) Name() string { return "shipping" }
+
+func (h *ConditionalShippingHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	var inventory map[string]any
+	_ = json.Unmarshal(input, &inventory)
+
+	order := inventory["order"].(map[string]any)
+	amount := order["amount"].(float64)
+
+	// Fail if amount is too high (for savepoint demo)
+	if amount > 1000.0 {
+		return nil, fmt.Errorf("shipping service unavailable for high-value orders")
+	}
+
+	result := map[string]any{
+		"tracking_number": fmt.Sprintf("TRK_%d", time.Now().Unix()),
+		"status":          "shipped",
+		"timestamp":       time.Now().Unix(),
+	}
+
+	return json.Marshal(result)
+}
+
 type NotificationHandler struct{}
 
 func (h *NotificationHandler) Name() string { return "notification" }
@@ -770,17 +804,24 @@ type PaymentServiceHandler struct{}
 func (h *PaymentServiceHandler) Name() string { return "payment-service" }
 
 func (h *PaymentServiceHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	var userData map[string]any
-	_ = json.Unmarshal(input, &userData)
+	var data map[string]any
+	_ = json.Unmarshal(input, &data)
 
-	order, ok := userData["order"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("order not found in input")
-	}
+	// Handle different input structures
+	var order map[string]any
+	var user map[string]any
+	var amount float64
+	var userID string
 
-	user, ok := userData["user"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("user not found in input")
+	if orderData, ok := data["order"].(map[string]any); ok {
+		// Input has order and user structure
+		order = orderData
+		if userData, ok := data["user"].(map[string]any); ok {
+			user = userData
+		}
+	} else {
+		// Input is directly the order
+		order = data
 	}
 
 	amount, ok := order["amount"].(float64)
@@ -788,9 +829,9 @@ func (h *PaymentServiceHandler) Execute(ctx context.Context, stepCtx StepContext
 		return nil, fmt.Errorf("amount not found in order")
 	}
 
-	userID, ok := user["user_id"].(string)
+	userID, ok = order["user_id"].(string)
 	if !ok {
-		return nil, fmt.Errorf("user_id not found in user")
+		return nil, fmt.Errorf("user_id not found in order")
 	}
 
 	result := map[string]any{
@@ -801,7 +842,10 @@ func (h *PaymentServiceHandler) Execute(ctx context.Context, stepCtx StepContext
 		"service":        "payment-service",
 		"timestamp":      time.Now().Unix(),
 		"order":          order,
-		"user":           user,
+	}
+
+	if user != nil {
+		result["user"] = user
 	}
 
 	return json.Marshal(result)
@@ -812,17 +856,22 @@ type InventoryServiceHandler struct{}
 func (h *InventoryServiceHandler) Name() string { return "inventory-service" }
 
 func (h *InventoryServiceHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	var userData map[string]any
-	_ = json.Unmarshal(input, &userData)
+	var data map[string]any
+	_ = json.Unmarshal(input, &data)
 
-	order, ok := userData["order"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("order not found in input")
-	}
+	// Handle different input structures
+	var order map[string]any
+	var user map[string]any
 
-	user, ok := userData["user"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("user not found in input")
+	if orderData, ok := data["order"].(map[string]any); ok {
+		// Input has order and user structure
+		order = orderData
+		if userData, ok := data["user"].(map[string]any); ok {
+			user = userData
+		}
+	} else {
+		// Input is directly the order
+		order = data
 	}
 
 	items, ok := order["items"].([]any)
@@ -836,7 +885,10 @@ func (h *InventoryServiceHandler) Execute(ctx context.Context, stepCtx StepConte
 		"service":        "inventory-service",
 		"timestamp":      time.Now().Unix(),
 		"order":          order,
-		"user":           user,
+	}
+
+	if user != nil {
+		result["user"] = user
 	}
 
 	return json.Marshal(result)
