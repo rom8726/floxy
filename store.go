@@ -12,15 +12,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type Store struct {
+type StoreImpl struct {
 	db Tx
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{db: pool}
+func NewStore(pool *pgxpool.Pool) *StoreImpl {
+	return &StoreImpl{db: pool}
 }
 
-func (store *Store) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
+func (store *StoreImpl) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -40,7 +40,7 @@ RETURNING id, created_at`
 	).Scan(&def.ID, &def.CreatedAt)
 }
 
-func (store *Store) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
+func (store *StoreImpl) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -65,7 +65,7 @@ WHERE id = $1`
 	return &def, nil
 }
 
-func (store *Store) CreateInstance(
+func (store *StoreImpl) CreateInstance(
 	ctx context.Context,
 	workflowID string,
 	input json.RawMessage,
@@ -90,7 +90,7 @@ RETURNING id, workflow_id, status, input, created_at, updated_at`
 	return instance, err
 }
 
-func (store *Store) UpdateInstanceStatus(
+func (store *StoreImpl) UpdateInstanceStatus(
 	ctx context.Context,
 	instanceID int64,
 	status WorkflowStatus,
@@ -111,7 +111,7 @@ WHERE id = $1`
 	return err
 }
 
-func (store *Store) GetInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
+func (store *StoreImpl) GetInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -134,7 +134,7 @@ WHERE id = $1`
 	return instance, nil
 }
 
-func (store *Store) CreateStep(ctx context.Context, step *WorkflowStep) error {
+func (store *StoreImpl) CreateStep(ctx context.Context, step *WorkflowStep) error {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -149,7 +149,7 @@ RETURNING id, created_at`
 	).Scan(&step.ID, &step.CreatedAt)
 }
 
-func (store *Store) UpdateStep(
+func (store *StoreImpl) UpdateStep(
 	ctx context.Context,
 	stepID int64,
 	status StepStatus,
@@ -171,7 +171,7 @@ WHERE id = $1`
 	return err
 }
 
-func (store *Store) GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (store *StoreImpl) GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -206,7 +206,7 @@ ORDER BY created_at`
 	return steps, rows.Err()
 }
 
-func (store *Store) EnqueueStep(
+func (store *StoreImpl) EnqueueStep(
 	ctx context.Context,
 	instanceID int64,
 	stepID *int64,
@@ -225,7 +225,7 @@ VALUES ($1, $2, $3, $4)`
 	return err
 }
 
-func (store *Store) DequeueStep(ctx context.Context, workerID string) (*QueueItem, error) {
+func (store *StoreImpl) DequeueStep(ctx context.Context, workerID string) (*QueueItem, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -256,7 +256,7 @@ RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attem
 	return item, err
 }
 
-func (store *Store) RemoveFromQueue(ctx context.Context, queueID int64) error {
+func (store *StoreImpl) RemoveFromQueue(ctx context.Context, queueID int64) error {
 	executor := store.getExecutor(ctx)
 
 	const query = `DELETE FROM workflows.workflow_queue WHERE id = $1`
@@ -265,7 +265,7 @@ func (store *Store) RemoveFromQueue(ctx context.Context, queueID int64) error {
 	return err
 }
 
-func (store *Store) LogEvent(
+func (store *StoreImpl) LogEvent(
 	ctx context.Context,
 	instanceID int64,
 	stepID *int64,
@@ -288,7 +288,7 @@ VALUES ($1, $2, $3, $4, $5)`
 	return err
 }
 
-func (store *Store) CreateJoinState(
+func (store *StoreImpl) CreateJoinState(
 	ctx context.Context,
 	instanceID int64,
 	joinStepName string,
@@ -317,7 +317,7 @@ ON CONFLICT (instance_id, join_step_name) DO NOTHING`
 	return err
 }
 
-func (store *Store) UpdateJoinState(
+func (store *StoreImpl) UpdateJoinState(
 	ctx context.Context,
 	instanceID int64,
 	joinStepName, completedStep string,
@@ -372,7 +372,7 @@ WHERE instance_id = $5 AND join_step_name = $6`
 	return isReady, nil
 }
 
-func (store *Store) GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error) {
+func (store *StoreImpl) GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -405,7 +405,7 @@ WHERE instance_id = $1 AND join_step_name = $2`
 	return &state, nil
 }
 
-func (store *Store) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
+func (store *StoreImpl) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
 	if strategy == JoinStrategyAny {
 		return len(completed) > 0 || len(failed) > 0
 	}
@@ -415,7 +415,7 @@ func (store *Store) checkJoinReady(waitingFor, completed, failed []string, strat
 	return totalProcessed >= len(waitingFor)
 }
 
-func (store *Store) getExecutor(ctx context.Context) Tx {
+func (store *StoreImpl) getExecutor(ctx context.Context) Tx {
 	if tx := TxFromContext(ctx); tx != nil {
 		return tx
 	}
