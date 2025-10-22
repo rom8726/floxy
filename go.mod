@@ -3,6 +3,7 @@ module github.com/rom8726/floxy
 go 1.24
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.11.1
