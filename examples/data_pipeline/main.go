@@ -302,7 +302,9 @@ func main() {
 			func(branch *floxy.Builder) {
 				branch.Step("extract-source3", "data-extractor", floxy.WithStepMaxRetries(2)).
 					Then("extract-source4", "data-extractor", floxy.WithStepMaxRetries(0)).
-					OnFailure("extract-source4-failure", "compensation", floxy.WithStepMaxRetries(0))
+					OnFailure("extract-source4-failure", "compensation", floxy.WithStepMaxRetries(0)).
+					Then("extract-source5", "data-extractor", floxy.WithStepMaxRetries(0)).
+					OnFailure("extract-source5-failure", "compensation", floxy.WithStepMaxRetries(0))
 			},
 		).
 		JoinStep("join-data", []string{"extract-source1", "extract-source2", "extract-source3"}, floxy.JoinStrategyAll).

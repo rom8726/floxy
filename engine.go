@@ -765,37 +765,39 @@ func (engine *Engine) rollbackStepChain(
 		return fmt.Errorf("step definition not found: %s", currentStep)
 	}
 
+	// First, traverse to the end of the chain (depth-first)
+	// Handle parallel steps (fork branches)
+	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
+		for _, parallelStepName := range stepDef.Parallel {
+			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	// For parallel branches, traverse all subsequent steps in the chain
+	if isParallel {
+		// Traverse all next steps in the parallel branch first
+		for _, nextStepName := range stepDef.Next {
+			if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Continue with a previous step (traverse backwards)
+	if stepDef.Prev != "" && !isParallel {
+		if err := engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap, isParallel); err != nil {
+			return err
+		}
+	}
+
+	// Now do the actual rollback (after traversing to the end)
 	if step, exists := stepMap[currentStep]; exists &&
 		(step.Status == StepStatusCompleted || step.Status == StepStatusFailed) {
 		if err := engine.rollbackStep(ctx, step, def); err != nil {
 			return fmt.Errorf("rollback step %s: %w", currentStep, err)
 		}
-	}
-
-	// Handle parallel steps (fork branches)
-	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
-		for _, parallelStepName := range stepDef.Parallel {
-			if err := engine.rollbackStepChain(
-				ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
-				return err
-			}
-		}
-	}
-
-	// For parallel branches, also rollback all subsequent steps in the chain
-	if isParallel {
-		// Rollback all next steps in the parallel branch
-		for _, nextStepName := range stepDef.Next {
-			if err := engine.rollbackStepChain(
-				ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
-				return err
-			}
-		}
-	}
-
-	// Continue with a previous step
-	if stepDef.Prev != "" && !isParallel {
-		return engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap, isParallel)
 	}
 
 	return nil
