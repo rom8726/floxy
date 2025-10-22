@@ -68,6 +68,7 @@ type StepDefinition struct {
 	WaitFor      []string          `json:"wait_for"`      // for join, we are waiting for these steps to be completed
 	JoinStrategy JoinStrategy      `json:"join_strategy"` // "all" (default) or "any"
 	Metadata     map[string]string `json:"metadata"`
+	NoIdempotent bool              `json:"no_idempotent"`
 }
 
 type WorkflowInstance struct {

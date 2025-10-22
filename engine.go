@@ -381,7 +381,9 @@ func (engine *Engine) handleStepFailure(
 ) error {
 	errMsg := stepErr.Error()
 
-	if step.RetryCount < step.MaxRetries {
+	if (step.RetryCount == 0 && stepDef.MaxRetries > 0) ||
+		(step.RetryCount > 0 && step.RetryCount < step.MaxRetries && !stepDef.NoIdempotent) {
+
 		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
 			return fmt.Errorf("update step: %w", err)
 		}

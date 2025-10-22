@@ -14,6 +14,12 @@ func WithStepMetadata(metadata map[string]string) StepOption {
 	}
 }
 
+func WithStepNoIdempotent() StepOption {
+	return func(step *StepDefinition) {
+		step.NoIdempotent = true
+	}
+}
+
 type BuilderOption func(builder *Builder)
 
 func WithBuilderMaxRetries(maxRetries int) BuilderOption {
