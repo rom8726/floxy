@@ -200,9 +200,10 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 		parallelStep.Parallel = append(parallelStep.Parallel, task.Name)
 	}
 
-	builder.currentStep = name
+	joinStepName := name + "_join"
+	parallelStep.Next = append(parallelStep.Next, joinStepName)
 
-	return builder
+	return builder.JoinStep(joinStepName, parallelStep.Parallel, JoinStrategyAll)
 }
 
 func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Builder {

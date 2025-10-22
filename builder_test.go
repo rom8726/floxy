@@ -65,6 +65,8 @@ func TestWorkflowBuilder(t *testing.T) {
 		assert.ElementsMatch(t,
 			[]string{"task1", "task2", "task3"},
 			wf.Definition.Steps["parallel"].Parallel)
+		assert.Equal(t, "parallel_join", wf.Definition.Steps["parallel"].Next[0])
+		assert.Equal(t, "final", wf.Definition.Steps["parallel_join"].Next[0])
 	})
 
 	t.Run("fork flow", func(t *testing.T) {
