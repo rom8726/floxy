@@ -38,6 +38,12 @@ type Store interface {
 		priority int,
 		delay time.Duration,
 	) error
+	UpdateStepCompensationRetry(
+		ctx context.Context,
+		stepID int64,
+		retryCount int,
+		status StepStatus,
+	) error
 	DequeueStep(ctx context.Context, workerID string) (*QueueItem, error)
 	RemoveFromQueue(ctx context.Context, queueID int64) error
 	LogEvent(

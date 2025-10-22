@@ -32,4 +32,5 @@ const (
 	KeyError         = "error"
 	KeyCompletedStep = "completed_step"
 	KeySuccess       = "success"
+	KeyReason        = "reason"
 )

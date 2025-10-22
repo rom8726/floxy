@@ -367,14 +367,14 @@ func main() {
 				branch.Step("check-inventory", "inventory-service", floxy.WithStepMaxRetries(2))
 			},
 		).
-		OnFailureFlow("compensate-payment-inventory", func(failureBuilder *floxy.Builder) {
-			failureBuilder.Step("compensate-payment-inventory", "compensation",
-				floxy.WithStepMaxRetries(1),
-				floxy.WithStepMetadata(map[string]string{
-					"action": "payment_inventory_failed",
-					"reason": "payment_or_inventory_error",
-				}))
-		}).
+		//OnFailureFlow("compensate-payment-inventory", func(failureBuilder *floxy.Builder) {
+		//	failureBuilder.Step("compensate-payment-inventory", "compensation",
+		//		floxy.WithStepMaxRetries(1),
+		//		floxy.WithStepMetadata(map[string]string{
+		//			"action": "payment_inventory_failed",
+		//			"reason": "payment_or_inventory_error",
+		//		}))
+		//}).
 		JoinStep("send-notifications", []string{"process-payment", "check-inventory"}, floxy.JoinStrategyAll).
 		Fork("track-analytics",
 			func(branch *floxy.Builder) {
