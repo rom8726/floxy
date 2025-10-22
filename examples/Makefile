@@ -15,18 +15,3 @@ data-pipeline: ## Run data pipeline example
 
 microservices: ## Run microservices example
 	cd microservices && go mod tidy && go run main.go
-
-all: ## Run all examples
-	./run_all.sh
-
-clean: ## Clean up go modules
-	find . -name "go.sum" -delete
-	find . -name "go.mod" -not -path "./go.mod" -delete
-
-setup: ## Setup database and run migrations
-	cd ../dev && docker-compose up -d
-	sleep 5
-	cd .. && go run cmd/migrate/main.go
-
-stop: ## Stop database
-	cd ../dev && docker-compose down
