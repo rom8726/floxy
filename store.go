@@ -8,18 +8,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 )
 
 type Store struct {
-	db *sql.DB
+	db Tx
 }
 
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{db: pool}
 }
 
 func (store *Store) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_definitions (id, name, version, definition, created_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -32,12 +35,14 @@ RETURNING id, created_at`
 		return fmt.Errorf("marshal definition: %w", err)
 	}
 
-	return store.db.QueryRowContext(ctx, query,
+	return executor.QueryRow(ctx, query,
 		def.ID, def.Name, def.Version, definitionJSON, time.Now(),
 	).Scan(&def.ID, &def.CreatedAt)
 }
 
 func (store *Store) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 SELECT id, name, version, definition, created_at
 FROM workflows.workflow_definitions
@@ -46,7 +51,7 @@ WHERE id = $1`
 	var def WorkflowDefinition
 	var definitionJSON []byte
 
-	err := store.db.QueryRowContext(ctx, query, id).Scan(
+	err := executor.QueryRow(ctx, query, id).Scan(
 		&def.ID, &def.Name, &def.Version, &definitionJSON, &def.CreatedAt,
 	)
 	if err != nil {
@@ -65,6 +70,8 @@ func (store *Store) CreateInstance(
 	workflowID string,
 	input json.RawMessage,
 ) (*WorkflowInstance, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_instances (workflow_id, status, input, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $4)
@@ -73,7 +80,7 @@ RETURNING id, workflow_id, status, input, created_at, updated_at`
 	now := time.Now()
 	instance := &WorkflowInstance{}
 
-	err := store.db.QueryRowContext(ctx, query,
+	err := executor.QueryRow(ctx, query,
 		workflowID, StatusPending, input, now,
 	).Scan(
 		&instance.ID, &instance.WorkflowID, &instance.Status,
@@ -90,6 +97,8 @@ func (store *Store) UpdateInstanceStatus(
 	output json.RawMessage,
 	errMsg *string,
 ) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 UPDATE workflows.workflow_instances
 SET status = $2, output = $3, error = $4, updated_at = $5,
@@ -97,12 +106,14 @@ SET status = $2, output = $3, error = $4, updated_at = $5,
 	started_at = CASE WHEN started_at IS NULL AND $2 = 'running' THEN $5 ELSE started_at END
 WHERE id = $1`
 
-	_, err := store.db.ExecContext(ctx, query, instanceID, status, output, errMsg, time.Now())
+	_, err := executor.Exec(ctx, query, instanceID, status, output, errMsg, time.Now())
 
 	return err
 }
 
 func (store *Store) GetInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 SELECT id, workflow_id, status, input, output, error,
 	   started_at, completed_at, created_at, updated_at
@@ -110,7 +121,7 @@ FROM workflows.workflow_instances
 WHERE id = $1`
 
 	instance := &WorkflowInstance{}
-	err := store.db.QueryRowContext(ctx, query, instanceID).Scan(
+	err := executor.QueryRow(ctx, query, instanceID).Scan(
 		&instance.ID, &instance.WorkflowID, &instance.Status,
 		&instance.Input, &instance.Output, &instance.Error,
 		&instance.StartedAt, &instance.CompletedAt,
@@ -124,13 +135,15 @@ WHERE id = $1`
 }
 
 func (store *Store) CreateStep(ctx context.Context, step *WorkflowStep) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_steps 
 (instance_id, step_name, step_type, status, input, max_retries, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, created_at`
 
-	return store.db.QueryRowContext(ctx, query,
+	return executor.QueryRow(ctx, query,
 		step.InstanceID, step.StepName, step.StepType,
 		step.Status, step.Input, step.MaxRetries, time.Now(),
 	).Scan(&step.ID, &step.CreatedAt)
@@ -143,6 +156,8 @@ func (store *Store) UpdateStep(
 	output json.RawMessage,
 	errMsg *string,
 ) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 UPDATE workflows.workflow_steps
 SET status = $2, output = $3, error = $4,
@@ -151,12 +166,14 @@ SET status = $2, output = $3, error = $4,
 	retry_count = CASE WHEN $2 = 'failed' THEN retry_count + 1 ELSE retry_count END
 WHERE id = $1`
 
-	_, err := store.db.ExecContext(ctx, query, stepID, status, output, errMsg, time.Now())
+	_, err := executor.Exec(ctx, query, stepID, status, output, errMsg, time.Now())
 
 	return err
 }
 
 func (store *Store) GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 SELECT id, instance_id, step_name, step_type, status, input, output, error,
 	retry_count, max_retries, started_at, completed_at, created_at
@@ -164,7 +181,7 @@ FROM workflows.workflow_steps
 WHERE instance_id = $1
 ORDER BY created_at`
 
-	rows, err := store.db.QueryContext(ctx, query, instanceID)
+	rows, err := executor.Query(ctx, query, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,17 +213,21 @@ func (store *Store) EnqueueStep(
 	priority int,
 	delay time.Duration,
 ) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_queue (instance_id, step_id, scheduled_at, priority)
 VALUES ($1, $2, $3, $4)`
 
 	scheduledAt := time.Now().Add(delay)
-	_, err := store.db.ExecContext(ctx, query, instanceID, stepID, scheduledAt, priority)
+	_, err := executor.Exec(ctx, query, instanceID, stepID, scheduledAt, priority)
 
 	return err
 }
 
 func (store *Store) DequeueStep(ctx context.Context, workerID string) (*QueueItem, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 WITH next_item AS (
 	SELECT id
@@ -223,7 +244,7 @@ WHERE workflows.workflow_queue.id = next_item.id
 RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority`
 
 	item := &QueueItem{}
-	err := store.db.QueryRowContext(ctx, query, time.Now(), workerID).Scan(
+	err := executor.QueryRow(ctx, query, time.Now(), workerID).Scan(
 		&item.ID, &item.InstanceID, &item.StepID,
 		&item.ScheduledAt, &item.AttemptedAt, &item.AttemptedBy, &item.Priority,
 	)
@@ -236,8 +257,10 @@ RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attem
 }
 
 func (store *Store) RemoveFromQueue(ctx context.Context, queueID int64) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `DELETE FROM workflows.workflow_queue WHERE id = $1`
-	_, err := store.db.ExecContext(ctx, query, queueID)
+	_, err := executor.Exec(ctx, query, queueID)
 
 	return err
 }
@@ -249,6 +272,8 @@ func (store *Store) LogEvent(
 	eventType string,
 	payload any,
 ) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_events (instance_id, step_id, event_type, payload, created_at)
 VALUES ($1, $2, $3, $4, $5)`
@@ -258,7 +283,7 @@ VALUES ($1, $2, $3, $4, $5)`
 		return err
 	}
 
-	_, err = store.db.ExecContext(ctx, query, instanceID, stepID, eventType, payloadJSON, time.Now())
+	_, err = executor.Exec(ctx, query, instanceID, stepID, eventType, payloadJSON, time.Now())
 
 	return err
 }
@@ -270,6 +295,8 @@ func (store *Store) CreateJoinState(
 	waitingFor []string,
 	strategy JoinStrategy,
 ) error {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 INSERT INTO workflows.workflow_join_state
     (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)
@@ -285,7 +312,7 @@ ON CONFLICT (instance_id, join_step_name) DO NOTHING`
 		strategy = "all"
 	}
 
-	_, err = store.db.ExecContext(ctx, query, instanceID, joinStepName, waitingForJSON, strategy, time.Now())
+	_, err = executor.Exec(ctx, query, instanceID, joinStepName, waitingForJSON, strategy, time.Now())
 
 	return err
 }
@@ -296,11 +323,7 @@ func (store *Store) UpdateJoinState(
 	joinStepName, completedStep string,
 	success bool,
 ) (bool, error) {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
+	executor := store.getExecutor(ctx)
 
 	const query = `
 SELECT waiting_for, completed, failed, join_strategy
@@ -311,7 +334,7 @@ FOR UPDATE`
 	var waitingForJSON, completedJSON, failedJSON []byte
 	var strategy JoinStrategy
 
-	err = tx.QueryRowContext(ctx, query, instanceID, joinStepName).Scan(
+	err := executor.QueryRow(ctx, query, instanceID, joinStepName).Scan(
 		&waitingForJSON, &completedJSON, &failedJSON, &strategy,
 	)
 	if err != nil {
@@ -339,14 +362,10 @@ WHERE instance_id = $5 AND join_step_name = $6`
 	completedJSON, _ = json.Marshal(completed)
 	failedJSON, _ = json.Marshal(failed)
 
-	_, err = tx.ExecContext(ctx, updateQuery,
+	_, err = executor.Exec(ctx, updateQuery,
 		completedJSON, failedJSON, isReady, time.Now(), instanceID, joinStepName,
 	)
 	if err != nil {
-		return false, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 
@@ -354,6 +373,8 @@ WHERE instance_id = $5 AND join_step_name = $6`
 }
 
 func (store *Store) GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error) {
+	executor := store.getExecutor(ctx)
+
 	const query = `
 SELECT instance_id, join_step_name, waiting_for, completed, failed, join_strategy, is_ready, created_at, updated_at
 FROM workflows.workflow_join_state
@@ -362,7 +383,7 @@ WHERE instance_id = $1 AND join_step_name = $2`
 	var state JoinState
 	var waitingForJSON, completedJSON, failedJSON []byte
 
-	err := store.db.QueryRowContext(ctx, query, instanceID, joinStepName).Scan(
+	err := executor.QueryRow(ctx, query, instanceID, joinStepName).Scan(
 		&state.InstanceID,
 		&state.JoinStepName,
 		&waitingForJSON,
@@ -392,4 +413,12 @@ func (store *Store) checkJoinReady(waitingFor, completed, failed []string, strat
 	totalProcessed := len(completed) + len(failed)
 
 	return totalProcessed >= len(waitingFor)
+}
+
+func (store *Store) getExecutor(ctx context.Context) Tx {
+	if tx := TxFromContext(ctx); tx != nil {
+		return tx
+	}
+
+	return store.db
 }
