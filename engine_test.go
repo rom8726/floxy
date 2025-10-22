@@ -385,9 +385,10 @@ func TestEngine_ExecuteNext_NoQueueItem(t *testing.T) {
 		fn(ctx)
 	}).Return(nil)
 
-	_, err := engine.ExecuteNext(context.Background(), workerID)
+	empty, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.NoError(t, err)
+	assert.True(t, empty)
 }
 
 func TestEngine_ExecuteNext_DequeueError(t *testing.T) {
@@ -402,9 +403,10 @@ func TestEngine_ExecuteNext_DequeueError(t *testing.T) {
 		fn(ctx)
 	}).Return(errors.New("dequeue step: dequeue failed"))
 
-	_, err := engine.ExecuteNext(context.Background(), workerID)
+	empty, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.Error(t, err)
+	assert.False(t, empty)
 	assert.Contains(t, err.Error(), "dequeue step")
 }
 
@@ -439,9 +441,10 @@ func TestEngine_ExecuteNext_StepNotFound(t *testing.T) {
 		fn(ctx)
 	}).Return(errors.New("step not found: 456"))
 
-	_, err := engine.ExecuteNext(context.Background(), workerID)
+	empty, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.Error(t, err)
+	assert.False(t, empty)
 	assert.Contains(t, err.Error(), "step not found")
 }
 
@@ -528,6 +531,62 @@ func TestEngine_ExecuteTask_HandlerNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, output)
 	assert.Contains(t, err.Error(), "handler not found")
+}
+
+func TestEngine_ExecuteSavePoint_Success(t *testing.T) {
+	mockTxManager := NewMockTxManager(t)
+	mockStore := NewMockStore(t)
+	engine := NewEngine(mockTxManager, mockStore)
+
+	instanceID := int64(123)
+	stepID := int64(456)
+
+	instance := &WorkflowInstance{
+		ID:         instanceID,
+		WorkflowID: "test-workflow",
+		Status:     StatusRunning,
+	}
+
+	step := &WorkflowStep{
+		ID:         stepID,
+		InstanceID: instanceID,
+		StepName:   "savepoint1",
+		StepType:   StepTypeSavePoint,
+		Status:     StepStatusPending,
+		Input:      json.RawMessage(`{"key": "value"}`),
+		MaxRetries: 3,
+		RetryCount: 0,
+	}
+
+	stepDef := &StepDefinition{
+		Name:       "savepoint1",
+		Type:       StepTypeSavePoint,
+		MaxRetries: 3,
+	}
+
+	definition := &WorkflowDefinition{
+		ID:   "test-workflow",
+		Name: "Test Workflow",
+		Definition: GraphDefinition{
+			Start: "savepoint1",
+			Steps: map[string]*StepDefinition{
+				"savepoint1": stepDef,
+			},
+		},
+	}
+
+	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
+	mockStore.EXPECT().UpdateStep(mock.Anything, stepID, StepStatusRunning, mock.Anything, mock.Anything).Return(nil)
+	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepStarted, mock.Anything).Return(nil)
+	mockStore.EXPECT().UpdateStep(mock.Anything, stepID, StepStatusCompleted, mock.Anything, mock.Anything).Return(nil)
+	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepCompleted, mock.Anything).Return(nil)
+	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
+	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
+
+	err := engine.executeStep(context.Background(), instance, step)
+
+	assert.NoError(t, err)
 }
 
 func TestEngine_ExecuteFork_Success(t *testing.T) {
@@ -896,7 +955,9 @@ func TestEngine_HandleStepFailure_WithRetries(t *testing.T) {
 	stepErr := errors.New("step execution failed")
 
 	mockStore.EXPECT().UpdateStep(mock.Anything, stepID, StepStatusFailed, mock.Anything, mock.Anything).Return(nil)
-	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepRetry, mock.Anything).Return(nil)
+	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepRetry, mock.MatchedBy(func(data map[string]any) bool {
+		return data[KeyRetryCount] == 2 // RetryCount was incremented from 1 to 2
+	})).Return(nil)
 	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, &stepID, 0, mock.Anything).Return(nil)
 
 	err := engine.handleStepFailure(context.Background(), instance, step, stepDef, stepErr)
@@ -1018,10 +1079,7 @@ func TestEngine_HandleStepFailure_WithOnFailure(t *testing.T) {
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
 	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
-	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
-		return s.InstanceID == instanceID && s.StepName == "compensation-step"
-	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().UpdateInstanceStatus(mock.Anything, instanceID, StatusFailed, mock.Anything, mock.Anything).Return(nil)
 
 	err := engine.handleStepFailure(context.Background(), instance, step, stepDef, stepErr)
 

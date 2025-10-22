@@ -392,7 +392,6 @@ func (engine *Engine) handleStepFailure(
 
 	if (step.RetryCount == 0 && stepDef.MaxRetries > 0) ||
 		(step.RetryCount > 0 && step.RetryCount < step.MaxRetries && !stepDef.NoIdempotent) {
-		step.RetryCount++
 
 		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
 			return fmt.Errorf("update step: %w", err)
@@ -400,7 +399,7 @@ func (engine *Engine) handleStepFailure(
 
 		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepRetry, map[string]any{
 			KeyStepName:   step.StepName,
-			KeyRetryCount: step.RetryCount,
+			KeyRetryCount: step.RetryCount + 1,
 			KeyError:      errMsg,
 		})
 

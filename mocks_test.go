@@ -334,52 +334,6 @@ func (_c *MockStepContext_RetryCount_Call) RunAndReturn(run func() int) *MockSte
 	return _c
 }
 
-// SetVariable provides a mock function for the type MockStepContext
-func (_mock *MockStepContext) SetVariable(key string, value string) {
-	_mock.Called(key, value)
-	return
-}
-
-// MockStepContext_SetVariable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVariable'
-type MockStepContext_SetVariable_Call struct {
-	*mock.Call
-}
-
-// SetVariable is a helper method to define mock.On call
-//   - key string
-//   - value string
-func (_e *MockStepContext_Expecter) SetVariable(key interface{}, value interface{}) *MockStepContext_SetVariable_Call {
-	return &MockStepContext_SetVariable_Call{Call: _e.mock.On("SetVariable", key, value)}
-}
-
-func (_c *MockStepContext_SetVariable_Call) Run(run func(key string, value string)) *MockStepContext_SetVariable_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockStepContext_SetVariable_Call) Return() *MockStepContext_SetVariable_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockStepContext_SetVariable_Call) RunAndReturn(run func(key string, value string)) *MockStepContext_SetVariable_Call {
-	_c.Run(run)
-	return _c
-}
-
 // StepName provides a mock function for the type MockStepContext
 func (_mock *MockStepContext) StepName() string {
 	ret := _mock.Called()
