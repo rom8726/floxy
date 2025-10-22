@@ -103,6 +103,9 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
 
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
+
 	// Start workflow
 	input := json.RawMessage(`{"sources": ["source1", "source2", "source3"]}`)
 	instanceID, err := engine.Start(ctx, "data-pipeline-v1", input)
@@ -187,6 +190,9 @@ func TestIntegration_Ecommerce(t *testing.T) {
 	// Register workflow
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
+
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
 
 	// Start workflow
 	order := map[string]any{
@@ -286,6 +292,9 @@ func TestIntegration_Microservices(t *testing.T) {
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
 
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
+
 	// Start workflow
 	order := map[string]any{
 		"user_id": "user456",
@@ -367,6 +376,9 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
 
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
+
 	// Test successful order
 	order1 := map[string]any{
 		"user_id": "user123",
@@ -388,7 +400,8 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process workflows
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
+		i = i
 		empty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			t.Logf("ExecuteNext error: %v", err)
@@ -468,6 +481,9 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 	// Register workflow
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
+
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
 
 	// Start workflow
 	order := map[string]any{
