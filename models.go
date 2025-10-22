@@ -1,6 +1,7 @@
 package floxy
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -130,7 +131,7 @@ type JoinState struct {
 }
 
 type StepHandler interface {
-	Execute(stepCtx StepContext, input json.RawMessage) (json.RawMessage, error)
+	Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error)
 	Name() string
 }
 
