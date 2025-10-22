@@ -187,24 +187,22 @@ func (_m *MockStepContext) EXPECT() *MockStepContext_Expecter {
 }
 
 // GetVariable provides a mock function for the type MockStepContext
-func (_mock *MockStepContext) GetVariable(key string) (any, bool) {
+func (_mock *MockStepContext) GetVariable(key string) (string, bool) {
 	ret := _mock.Called(key)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetVariable")
 	}
 
-	var r0 any
+	var r0 string
 	var r1 bool
-	if returnFunc, ok := ret.Get(0).(func(string) (any, bool)); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) (string, bool)); ok {
 		return returnFunc(key)
 	}
-	if returnFunc, ok := ret.Get(0).(func(string) any); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
 		r0 = returnFunc(key)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(any)
-		}
+		r0 = ret.Get(0).(string)
 	}
 	if returnFunc, ok := ret.Get(1).(func(string) bool); ok {
 		r1 = returnFunc(key)
@@ -238,12 +236,12 @@ func (_c *MockStepContext_GetVariable_Call) Run(run func(key string)) *MockStepC
 	return _c
 }
 
-func (_c *MockStepContext_GetVariable_Call) Return(v any, b bool) *MockStepContext_GetVariable_Call {
-	_c.Call.Return(v, b)
+func (_c *MockStepContext_GetVariable_Call) Return(s string, b bool) *MockStepContext_GetVariable_Call {
+	_c.Call.Return(s, b)
 	return _c
 }
 
-func (_c *MockStepContext_GetVariable_Call) RunAndReturn(run func(key string) (any, bool)) *MockStepContext_GetVariable_Call {
+func (_c *MockStepContext_GetVariable_Call) RunAndReturn(run func(key string) (string, bool)) *MockStepContext_GetVariable_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -337,7 +335,7 @@ func (_c *MockStepContext_RetryCount_Call) RunAndReturn(run func() int) *MockSte
 }
 
 // SetVariable provides a mock function for the type MockStepContext
-func (_mock *MockStepContext) SetVariable(key string, value any) {
+func (_mock *MockStepContext) SetVariable(key string, value string) {
 	_mock.Called(key, value)
 	return
 }
@@ -349,20 +347,20 @@ type MockStepContext_SetVariable_Call struct {
 
 // SetVariable is a helper method to define mock.On call
 //   - key string
-//   - value any
+//   - value string
 func (_e *MockStepContext_Expecter) SetVariable(key interface{}, value interface{}) *MockStepContext_SetVariable_Call {
 	return &MockStepContext_SetVariable_Call{Call: _e.mock.On("SetVariable", key, value)}
 }
 
-func (_c *MockStepContext_SetVariable_Call) Run(run func(key string, value any)) *MockStepContext_SetVariable_Call {
+func (_c *MockStepContext_SetVariable_Call) Run(run func(key string, value string)) *MockStepContext_SetVariable_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 string
 		if args[0] != nil {
 			arg0 = args[0].(string)
 		}
-		var arg1 any
+		var arg1 string
 		if args[1] != nil {
-			arg1 = args[1].(any)
+			arg1 = args[1].(string)
 		}
 		run(
 			arg0,
@@ -377,7 +375,7 @@ func (_c *MockStepContext_SetVariable_Call) Return() *MockStepContext_SetVariabl
 	return _c
 }
 
-func (_c *MockStepContext_SetVariable_Call) RunAndReturn(run func(key string, value any)) *MockStepContext_SetVariable_Call {
+func (_c *MockStepContext_SetVariable_Call) RunAndReturn(run func(key string, value string)) *MockStepContext_SetVariable_Call {
 	_c.Run(run)
 	return _c
 }

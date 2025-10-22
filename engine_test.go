@@ -246,6 +246,10 @@ func TestEngine_Start_Success(t *testing.T) {
 		Input:      input,
 	}
 
+	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
+		fn(ctx)
+	}).Return(nil)
+
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, workflowID).Return(definition, nil)
 	mockStore.EXPECT().CreateInstance(mock.Anything, workflowID, input).Return(instance, nil)
 	mockStore.EXPECT().LogEvent(mock.Anything, instance.ID, mock.Anything, EventWorkflowStarted, mock.Anything).Return(nil)
@@ -270,6 +274,10 @@ func TestEngine_Start_GetDefinitionError(t *testing.T) {
 
 	workflowID := "test-workflow"
 	input := json.RawMessage(`{"key": "value"}`)
+
+	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
+		fn(ctx)
+	}).Return(errors.New("get workflow definition: definition not found"))
 
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, workflowID).Return(nil, errors.New("definition not found"))
 
@@ -303,6 +311,10 @@ func TestEngine_Start_CreateInstanceError(t *testing.T) {
 			},
 		},
 	}
+
+	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
+		fn(ctx)
+	}).Return(errors.New("create instance: create instance failed"))
 
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, workflowID).Return(definition, nil)
 	mockStore.EXPECT().CreateInstance(mock.Anything, workflowID, input).Return(nil, errors.New("create instance failed"))
@@ -344,6 +356,10 @@ func TestEngine_Start_NoStartStep(t *testing.T) {
 		Status:     StatusPending,
 		Input:      input,
 	}
+
+	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
+		fn(ctx)
+	}).Return(errors.New("no start step defined"))
 
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, workflowID).Return(definition, nil)
 	mockStore.EXPECT().CreateInstance(mock.Anything, workflowID, input).Return(instance, nil)
