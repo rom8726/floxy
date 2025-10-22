@@ -2,6 +2,8 @@
 
 A Go library for creating and executing workflows with a custom DSL. Implements the Saga pattern with orchestrator approach, providing transaction management and compensation capabilities.
 
+floxy means "flow" + "flux" + "tiny".
+
 ## Features
 
 - **Workflow DSL**: Declarative workflow definition using Builder pattern
