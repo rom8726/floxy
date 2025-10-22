@@ -688,10 +688,7 @@ func (engine *Engine) rollbackToSavePoint(
 	failedStep *WorkflowStep,
 	def *WorkflowDefinition,
 ) error {
-	savePointName := engine.findNearestSavePoint(failedStep.StepName, def)
-	if savePointName == "" {
-		return engine.rollbackAllSteps(ctx, instanceID, failedStep, def)
-	}
+	savePointName := engine.findNearestSavePoint(failedStep.StepName, def) // nearest save point or empty string (root)
 
 	return engine.rollbackStepsToSavePoint(ctx, instanceID, failedStep, savePointName, def)
 }
@@ -718,28 +715,6 @@ func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinit
 	}
 
 	return ""
-}
-
-func (engine *Engine) rollbackAllSteps(
-	ctx context.Context,
-	instanceID int64,
-	failedStep *WorkflowStep,
-	def *WorkflowDefinition,
-) error {
-	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-	if err != nil {
-		return fmt.Errorf("get steps by instance: %w", err)
-	}
-
-	for _, step := range steps {
-		if step.Status == StepStatusCompleted || step.Status == StepStatusFailed {
-			if err := engine.rollbackStep(ctx, step, def); err != nil {
-				return fmt.Errorf("rollback step %s: %w", step.StepName, err)
-			}
-		}
-	}
-
-	return nil
 }
 
 func (engine *Engine) rollbackStepsToSavePoint(
