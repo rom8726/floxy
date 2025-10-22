@@ -1,0 +1,20 @@
+NAMESPACE=floxy
+
+RED="\033[0;31m"
+GREEN="\033[1;32m"
+NOCOLOR="\033[0m"
+
+.DEFAULT_GOAL := help
+
+#
+# Extra targets
+#
+-include dev/dev.mk
+
+#
+# Local targets
+#
+
+.PHONY: help
+help: ## Выводит это сообщение
+	@echo "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"

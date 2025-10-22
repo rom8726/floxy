@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  floxy-pg:
+    image: postgres:17-alpine
+    container_name: floxy-pg
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: floxy
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - "floxy_pg:/var/lib/postgresql/data/pgdata"
+    ports:
+      - "5435:5432"
+volumes:
+  floxy_pg:

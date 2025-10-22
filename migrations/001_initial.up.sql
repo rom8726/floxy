@@ -1,4 +1,6 @@
-CREATE TABLE IF NOT EXISTS workflow_definitions (
+CREATE SCHEMA IF NOT EXISTS workflows;
+
+CREATE TABLE IF NOT EXISTS workflows.workflow_definitions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     version INT NOT NULL,
@@ -7,11 +9,11 @@ CREATE TABLE IF NOT EXISTS workflow_definitions (
     UNIQUE(name, version)
 );
 
-CREATE INDEX idx_workflow_definitions_name ON workflow_definitions(name);
+CREATE INDEX idx_workflow_definitions_name ON workflows.workflow_definitions(name);
 
-CREATE TABLE IF NOT EXISTS workflow_instances (
+CREATE TABLE IF NOT EXISTS workflows.workflow_instances (
     id BIGSERIAL PRIMARY KEY,
-    workflow_id TEXT NOT NULL REFERENCES workflow_definitions(id),
+    workflow_id TEXT NOT NULL REFERENCES workflows.workflow_definitions(id),
     status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
     input JSONB,
     output JSONB,
@@ -22,13 +24,13 @@ CREATE TABLE IF NOT EXISTS workflow_instances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_instances_workflow_id ON workflow_instances(workflow_id);
-CREATE INDEX idx_workflow_instances_status ON workflow_instances(status);
-CREATE INDEX idx_workflow_instances_created_at ON workflow_instances(created_at DESC);
+CREATE INDEX idx_workflow_instances_workflow_id ON workflows.workflow_instances(workflow_id);
+CREATE INDEX idx_workflow_instances_status ON workflows.workflow_instances(status);
+CREATE INDEX idx_workflow_instances_created_at ON workflows.workflow_instances(created_at DESC);
 
-CREATE TABLE IF NOT EXISTS workflow_steps (
+CREATE TABLE IF NOT EXISTS workflows.workflow_steps (
     id BIGSERIAL PRIMARY KEY,
-    instance_id BIGINT NOT NULL REFERENCES workflow_instances(id) ON DELETE CASCADE,
+    instance_id BIGINT NOT NULL REFERENCES workflows.workflow_instances(id) ON DELETE CASCADE,
     step_name TEXT NOT NULL,
     step_type TEXT NOT NULL CHECK (step_type IN ('task', 'parallel', 'condition', 'fork', 'join')),
     status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped')),
@@ -42,13 +44,13 @@ CREATE TABLE IF NOT EXISTS workflow_steps (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_steps_instance_id ON workflow_steps(instance_id);
-CREATE INDEX idx_workflow_steps_status ON workflow_steps(status);
-CREATE INDEX idx_workflow_steps_step_name ON workflow_steps(step_name);
+CREATE INDEX idx_workflow_steps_instance_id ON workflows.workflow_steps(instance_id);
+CREATE INDEX idx_workflow_steps_status ON workflows.workflow_steps(status);
+CREATE INDEX idx_workflow_steps_step_name ON workflows.workflow_steps(step_name);
 
-CREATE TABLE IF NOT EXISTS workflow_join_state (
+CREATE TABLE IF NOT EXISTS workflows.workflow_join_state (
     id BIGSERIAL PRIMARY KEY,
-    instance_id BIGINT NOT NULL REFERENCES workflow_instances(id) ON DELETE CASCADE,
+    instance_id BIGINT NOT NULL REFERENCES workflows.workflow_instances(id) ON DELETE CASCADE,
     join_step_name TEXT NOT NULL,
     waiting_for JSONB NOT NULL,  -- list of step names we are waiting for
     completed JSONB NOT NULL DEFAULT '[]',  -- list of completed steps
@@ -60,37 +62,37 @@ CREATE TABLE IF NOT EXISTS workflow_join_state (
     UNIQUE(instance_id, join_step_name)
 );
 
-CREATE INDEX idx_workflow_join_state_instance ON workflow_join_state(instance_id);
-CREATE INDEX idx_workflow_join_state_ready ON workflow_join_state(is_ready);
+CREATE INDEX idx_workflow_join_state_instance ON workflows.workflow_join_state(instance_id);
+CREATE INDEX idx_workflow_join_state_ready ON workflows.workflow_join_state(is_ready);
 
-CREATE TABLE IF NOT EXISTS workflow_queue (
+CREATE TABLE IF NOT EXISTS workflows.workflow_queue (
     id BIGSERIAL PRIMARY KEY,
-    instance_id BIGINT NOT NULL REFERENCES workflow_instances(id) ON DELETE CASCADE,
-    step_id BIGINT REFERENCES workflow_steps(id) ON DELETE CASCADE,
+    instance_id BIGINT NOT NULL REFERENCES workflows.workflow_instances(id) ON DELETE CASCADE,
+    step_id BIGINT REFERENCES workflows.workflow_steps(id) ON DELETE CASCADE,
     scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     attempted_at TIMESTAMPTZ,
     attempted_by TEXT,
     priority INT NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_workflow_queue_scheduled ON workflow_queue(scheduled_at, priority DESC)
+CREATE INDEX idx_workflow_queue_scheduled ON workflows.workflow_queue(scheduled_at, priority DESC)
     WHERE attempted_at IS NULL;
-CREATE INDEX idx_workflow_queue_instance_id ON workflow_queue(instance_id);
+CREATE INDEX idx_workflow_queue_instance_id ON workflows.workflow_queue(instance_id);
 
-CREATE TABLE IF NOT EXISTS workflow_events (
+CREATE TABLE IF NOT EXISTS workflows.workflow_events (
     id BIGSERIAL PRIMARY KEY,
-    instance_id BIGINT NOT NULL REFERENCES workflow_instances(id) ON DELETE CASCADE,
-    step_id BIGINT REFERENCES workflow_steps(id) ON DELETE CASCADE,
+    instance_id BIGINT NOT NULL REFERENCES workflows.workflow_instances(id) ON DELETE CASCADE,
+    step_id BIGINT REFERENCES workflows.workflow_steps(id) ON DELETE CASCADE,
     event_type TEXT NOT NULL,
     payload JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workflow_events_instance_id ON workflow_events(instance_id);
-CREATE INDEX idx_workflow_events_created_at ON workflow_events(created_at DESC);
-CREATE INDEX idx_workflow_events_event_type ON workflow_events(event_type);
+CREATE INDEX idx_workflow_events_instance_id ON workflows.workflow_events(instance_id);
+CREATE INDEX idx_workflow_events_created_at ON workflows.workflow_events(created_at DESC);
+CREATE INDEX idx_workflow_events_event_type ON workflows.workflow_events(event_type);
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+CREATE OR REPLACE FUNCTION workflows.update_updated_at_column()
     RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -98,25 +100,25 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
-DROP TRIGGER IF EXISTS update_workflow_instances_updated_at ON workflow_instances;
+DROP TRIGGER IF EXISTS update_workflow_instances_updated_at ON workflows.workflow_instances;
 CREATE TRIGGER update_workflow_instances_updated_at
-    BEFORE UPDATE ON workflow_instances
+    BEFORE UPDATE ON workflows.workflow_instances
     FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+EXECUTE FUNCTION workflows.update_updated_at_column();
 
 
-COMMENT ON TABLE workflow_definitions IS 'Workflow templates with definition of the execution graph';
-COMMENT ON TABLE workflow_instances IS 'Instances of running workflows';
-COMMENT ON TABLE workflow_steps IS 'Separate workflow execution steps';
-COMMENT ON TABLE workflow_queue IS 'Queue of steps for workers to complete';
-COMMENT ON TABLE workflow_events IS 'Event log for auditing and debugging';
+COMMENT ON TABLE workflows.workflow_definitions IS 'Workflow templates with definition of the execution graph';
+COMMENT ON TABLE workflows.workflow_instances IS 'Instances of running workflows';
+COMMENT ON TABLE workflows.workflow_steps IS 'Separate workflow execution steps';
+COMMENT ON TABLE workflows.workflow_queue IS 'Queue of steps for workers to complete';
+COMMENT ON TABLE workflows.workflow_events IS 'Event log for auditing and debugging';
 
-COMMENT ON COLUMN workflow_definitions.definition IS 'JSONB graph with adjacency list structure';
-COMMENT ON COLUMN workflow_instances.status IS 'pending | running | completed | failed | cancelled';
-COMMENT ON COLUMN workflow_steps.status IS 'pending | running | completed | failed | skipped';
-COMMENT ON COLUMN workflow_steps.step_type IS 'task | parallel | condition';
+COMMENT ON COLUMN workflows.workflow_definitions.definition IS 'JSONB graph with adjacency list structure';
+COMMENT ON COLUMN workflows.workflow_instances.status IS 'pending | running | completed | failed | cancelled';
+COMMENT ON COLUMN workflows.workflow_steps.status IS 'pending | running | completed | failed | skipped';
+COMMENT ON COLUMN workflows.workflow_steps.step_type IS 'task | parallel | condition';
 
-CREATE OR REPLACE VIEW active_workflows AS
+CREATE OR REPLACE VIEW workflows.active_workflows AS
 SELECT
     wi.id,
     wi.workflow_id,
@@ -128,12 +130,12 @@ SELECT
     COUNT(ws.id) FILTER (WHERE ws.status = 'completed') as completed_steps,
     COUNT(ws.id) FILTER (WHERE ws.status = 'failed') as failed_steps,
     COUNT(ws.id) FILTER (WHERE ws.status = 'running') as running_steps
-FROM workflow_instances wi
-         LEFT JOIN workflow_steps ws ON wi.id = ws.instance_id
+FROM workflows.workflow_instances wi
+         LEFT JOIN workflows.workflow_steps ws ON wi.id = ws.instance_id
 WHERE wi.status IN ('pending', 'running')
 GROUP BY wi.id, wi.workflow_id, wi.status, wi.created_at, wi.updated_at;
 
-CREATE OR REPLACE VIEW workflow_stats AS
+CREATE OR REPLACE VIEW workflows.workflow_stats AS
 SELECT
     wd.name,
     wd.version,
@@ -143,16 +145,16 @@ SELECT
     COUNT(wi.id) FILTER (WHERE wi.status = 'running') as running,
     AVG(EXTRACT(EPOCH FROM (wi.completed_at - wi.created_at)))
     FILTER (WHERE wi.status = 'completed') as avg_duration_seconds
-FROM workflow_definitions wd
-         LEFT JOIN workflow_instances wi ON wd.id = wi.workflow_id
+FROM workflows.workflow_definitions wd
+         LEFT JOIN workflows.workflow_instances wi ON wd.id = wi.workflow_id
 GROUP BY wd.name, wd.version;
 
-CREATE OR REPLACE FUNCTION cleanup_old_workflows(days_to_keep INT DEFAULT 30)
+CREATE OR REPLACE FUNCTION workflows.cleanup_old_workflows(days_to_keep INT DEFAULT 30)
     RETURNS TABLE(deleted_count BIGINT) AS $$
 DECLARE
     result BIGINT;
 BEGIN
-    DELETE FROM workflow_instances
+    DELETE FROM workflows.workflow_instances
     WHERE status IN ('completed', 'failed', 'cancelled')
       AND completed_at < NOW() - INTERVAL '1 day' * days_to_keep;
 
@@ -161,4 +163,4 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION cleanup_old_workflows IS 'Deletes completed workflows older than the specified number of days';
+COMMENT ON FUNCTION workflows.cleanup_old_workflows IS 'Deletes completed workflows older than the specified number of days';

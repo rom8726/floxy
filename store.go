@@ -21,7 +21,7 @@ func NewStore(db *sql.DB) *Store {
 
 func (store *Store) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
 	const query = `
-INSERT INTO workflow_definitions (id, name, version, definition, created_at)
+INSERT INTO workflows.workflow_definitions (id, name, version, definition, created_at)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (name, version) DO UPDATE
 SET definition = EXCLUDED.definition
@@ -40,7 +40,7 @@ RETURNING id, created_at`
 func (store *Store) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
 	const query = `
 SELECT id, name, version, definition, created_at
-FROM workflow_definitions
+FROM workflows.workflow_definitions
 WHERE id = $1`
 
 	var def WorkflowDefinition
@@ -66,7 +66,7 @@ func (store *Store) CreateInstance(
 	input json.RawMessage,
 ) (*WorkflowInstance, error) {
 	const query = `
-INSERT INTO workflow_instances (workflow_id, status, input, created_at, updated_at)
+INSERT INTO workflows.workflow_instances (workflow_id, status, input, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $4)
 RETURNING id, workflow_id, status, input, created_at, updated_at`
 
@@ -91,7 +91,7 @@ func (store *Store) UpdateInstanceStatus(
 	errMsg *string,
 ) error {
 	const query = `
-UPDATE workflow_instances
+UPDATE workflows.workflow_instances
 SET status = $2, output = $3, error = $4, updated_at = $5,
 	completed_at = CASE WHEN $2 IN ('completed', 'failed', 'cancelled') THEN $5 ELSE completed_at END,
 	started_at = CASE WHEN started_at IS NULL AND $2 = 'running' THEN $5 ELSE started_at END
@@ -106,7 +106,7 @@ func (store *Store) GetInstance(ctx context.Context, instanceID int64) (*Workflo
 	const query = `
 SELECT id, workflow_id, status, input, output, error,
 	   started_at, completed_at, created_at, updated_at
-FROM workflow_instances
+FROM workflows.workflow_instances
 WHERE id = $1`
 
 	instance := &WorkflowInstance{}
@@ -125,7 +125,7 @@ WHERE id = $1`
 
 func (store *Store) CreateStep(ctx context.Context, step *WorkflowStep) error {
 	const query = `
-INSERT INTO workflow_steps 
+INSERT INTO workflows.workflow_steps 
 (instance_id, step_name, step_type, status, input, max_retries, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, created_at`
@@ -144,7 +144,7 @@ func (store *Store) UpdateStep(
 	errMsg *string,
 ) error {
 	const query = `
-UPDATE workflow_steps
+UPDATE workflows.workflow_steps
 SET status = $2, output = $3, error = $4,
 	completed_at = CASE WHEN $2 IN ('completed', 'failed', 'skipped') THEN $5 ELSE completed_at END,
 	started_at = CASE WHEN started_at IS NULL AND $2 = 'running' THEN $5 ELSE started_at END,
@@ -160,7 +160,7 @@ func (store *Store) GetStepsByInstance(ctx context.Context, instanceID int64) ([
 	const query = `
 SELECT id, instance_id, step_name, step_type, status, input, output, error,
 	retry_count, max_retries, started_at, completed_at, created_at
-FROM workflow_steps
+FROM workflows.workflow_steps
 WHERE instance_id = $1
 ORDER BY created_at`
 
@@ -197,7 +197,7 @@ func (store *Store) EnqueueStep(
 	delay time.Duration,
 ) error {
 	const query = `
-INSERT INTO workflow_queue (instance_id, step_id, scheduled_at, priority)
+INSERT INTO workflows.workflow_queue (instance_id, step_id, scheduled_at, priority)
 VALUES ($1, $2, $3, $4)`
 
 	scheduledAt := time.Now().Add(delay)
@@ -210,17 +210,17 @@ func (store *Store) DequeueStep(ctx context.Context, workerID string) (*QueueIte
 	const query = `
 WITH next_item AS (
 	SELECT id
-	FROM workflow_queue
+	FROM workflows.workflow_queue
 	WHERE scheduled_at <= $1 AND attempted_at IS NULL
 	ORDER BY priority DESC, scheduled_at ASC
 	LIMIT 1
 	FOR UPDATE SKIP LOCKED
 )
-UPDATE workflow_queue
+UPDATE workflows.workflow_queue
 SET attempted_at = $1, attempted_by = $2
 FROM next_item
-WHERE workflow_queue.id = next_item.id
-RETURNING workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority`
+WHERE workflows.workflow_queue.id = next_item.id
+RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority`
 
 	item := &QueueItem{}
 	err := store.db.QueryRowContext(ctx, query, time.Now(), workerID).Scan(
@@ -236,7 +236,7 @@ RETURNING workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, a
 }
 
 func (store *Store) RemoveFromQueue(ctx context.Context, queueID int64) error {
-	const query = `DELETE FROM workflow_queue WHERE id = $1`
+	const query = `DELETE FROM workflows.workflow_queue WHERE id = $1`
 	_, err := store.db.ExecContext(ctx, query, queueID)
 
 	return err
@@ -250,7 +250,7 @@ func (store *Store) LogEvent(
 	payload any,
 ) error {
 	const query = `
-INSERT INTO workflow_events (instance_id, step_id, event_type, payload, created_at)
+INSERT INTO workflows.workflow_events (instance_id, step_id, event_type, payload, created_at)
 VALUES ($1, $2, $3, $4, $5)`
 
 	payloadJSON, err := json.Marshal(payload)
@@ -271,7 +271,7 @@ func (store *Store) CreateJoinState(
 	strategy JoinStrategy,
 ) error {
 	const query = `
-INSERT INTO workflow_join_state (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)
+INSERT INTO workflows.workflow_join_state (instance_id, join_step_name, waiting_for, join_strategy, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $5)
 ON CONFLICT (instance_id, join_step_name) DO NOTHING`
 
@@ -303,12 +303,12 @@ func (store *Store) UpdateJoinState(
 
 	const query = `
 SELECT waiting_for, completed, failed, join_strategy
-FROM workflow_join_state
+FROM workflows.workflow_join_state
 WHERE instance_id = $1 AND join_step_name = $2
 FOR UPDATE`
 
 	var waitingForJSON, completedJSON, failedJSON []byte
-	var strategy string
+	var strategy JoinStrategy
 
 	err = tx.QueryRowContext(ctx, query, instanceID, joinStepName).Scan(
 		&waitingForJSON, &completedJSON, &failedJSON, &strategy,
@@ -331,7 +331,7 @@ FOR UPDATE`
 	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
 
 	const updateQuery = `
-UPDATE workflow_join_state
+UPDATE workflows.workflow_join_state
 SET completed = $1, failed = $2, is_ready = $3, updated_at = $4
 WHERE instance_id = $5 AND join_step_name = $6`
 
@@ -355,7 +355,7 @@ WHERE instance_id = $5 AND join_step_name = $6`
 func (store *Store) GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error) {
 	const query = `
 SELECT instance_id, join_step_name, waiting_for, completed, failed, join_strategy, is_ready, created_at, updated_at
-FROM workflow_join_state
+FROM workflows.workflow_join_state
 WHERE instance_id = $1 AND join_step_name = $2`
 
 	var state JoinState
@@ -383,8 +383,8 @@ WHERE instance_id = $1 AND join_step_name = $2`
 	return &state, nil
 }
 
-func (store *Store) checkJoinReady(waitingFor, completed, failed []string, strategy string) bool {
-	if strategy == "any" {
+func (store *Store) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
+	if strategy == JoinStrategyAny {
 		return len(completed) > 0 || len(failed) > 0
 	}
 
