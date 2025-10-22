@@ -385,7 +385,7 @@ func TestEngine_ExecuteNext_NoQueueItem(t *testing.T) {
 		fn(ctx)
 	}).Return(nil)
 
-	err := engine.ExecuteNext(context.Background(), workerID)
+	_, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.NoError(t, err)
 }
@@ -402,7 +402,7 @@ func TestEngine_ExecuteNext_DequeueError(t *testing.T) {
 		fn(ctx)
 	}).Return(errors.New("dequeue step: dequeue failed"))
 
-	err := engine.ExecuteNext(context.Background(), workerID)
+	_, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "dequeue step")
@@ -439,7 +439,7 @@ func TestEngine_ExecuteNext_StepNotFound(t *testing.T) {
 		fn(ctx)
 	}).Return(errors.New("step not found: 456"))
 
-	err := engine.ExecuteNext(context.Background(), workerID)
+	_, err := engine.ExecuteNext(context.Background(), workerID)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "step not found")
