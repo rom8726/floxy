@@ -256,11 +256,17 @@ func calculateStats(records []map[string]any) map[string]any {
 }
 
 func main() {
+	ctx := context.Background()
 	pool, err := pgxpool.New(context.Background(), "postgres://user:password@localhost:5435/floxy?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to create connection pool: %v", err)
 	}
 	defer pool.Close()
+
+	// Run migrations
+	if err := floxy.RunMigrations(ctx, pool); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	store := floxy.NewStore(pool)
 	txManager := floxy.NewTxManager(pool)

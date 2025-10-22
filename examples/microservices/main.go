@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/rom8726/floxy"
 )
 
@@ -214,10 +215,18 @@ func (h *AnalyticsServiceHandler) Execute(ctx context.Context, stepCtx floxy.Ste
 		return nil, err
 	}
 
-	order := data["order"].(map[string]any)
-	user := data["user"].(map[string]any)
-	eventType := order["event_type"].(string)
-	userID := user["id"].(string)
+	var order map[string]any
+	var eventType string
+	if _, ok := data["order"]; ok {
+		order = data["order"].(map[string]any)
+		eventType = order["event_type"].(string)
+	}
+	var user map[string]any
+	var userID string
+	if _, ok := data["user"]; ok {
+		user = data["user"].(map[string]any)
+		userID = user["id"].(string)
+	}
 
 	time.Sleep(40 * time.Millisecond)
 
@@ -250,10 +259,18 @@ func (h *AuditServiceHandler) Execute(ctx context.Context, stepCtx floxy.StepCon
 		return nil, err
 	}
 
-	order := data["order"].(map[string]any)
-	user := data["user"].(map[string]any)
-	action := order["action"].(string)
-	userID := user["id"].(string)
+	var order map[string]any
+	var action string
+	if _, ok := data["order"]; ok {
+		order = data["order"].(map[string]any)
+		action = order["action"].(string)
+	}
+	var user map[string]any
+	var userID string
+	if _, ok := data["user"]; ok {
+		user = data["user"].(map[string]any)
+		userID = user["id"].(string)
+	}
 
 	time.Sleep(20 * time.Millisecond)
 
@@ -310,6 +327,7 @@ func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepCon
 }
 
 func main() {
+	ctx := context.Background()
 	pool, err := pgxpool.New(context.Background(), "postgres://user:password@localhost:5435/floxy?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to create connection pool: %v", err)
@@ -319,6 +337,11 @@ func main() {
 	store := floxy.NewStore(pool)
 	txManager := floxy.NewTxManager(pool)
 	engine := floxy.NewEngine(txManager, store)
+
+	// Run migrations
+	if err := floxy.RunMigrations(ctx, pool); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	engine.RegisterHandler(&UserServiceHandler{})
 	engine.RegisterHandler(&PaymentServiceHandler{})

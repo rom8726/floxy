@@ -161,9 +161,9 @@ func main() {
 	defer pool.Close()
 
 	// Run migrations
-	//if err := floxy.RunMigrations(ctx, pool); err != nil {
-	//	log.Fatalf("Failed to run migrations: %v", err)
-	//}
+	if err := floxy.RunMigrations(ctx, pool); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Create store and transaction manager
 	store := floxy.NewStore(pool)
