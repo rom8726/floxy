@@ -12,6 +12,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
+var _ Store = (*StoreImpl)(nil)
+
 type StoreImpl struct {
 	db Tx
 }

@@ -4,6 +4,8 @@ import (
 	"sync"
 )
 
+var _ StepContext = (*executionContext)(nil)
+
 type executionContext struct {
 	instanceID int64
 	stepName   string

@@ -129,16 +129,3 @@ type JoinState struct {
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
-
-type StepHandler interface {
-	Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error)
-	Name() string
-}
-
-type StepContext interface {
-	InstanceID() int64
-	StepName() string
-	RetryCount() int
-	GetVariable(key string) (interface{}, bool)
-	SetVariable(key string, value interface{})
-}
