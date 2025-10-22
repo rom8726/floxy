@@ -33,6 +33,7 @@ const (
 	StepTypeCondition StepType = "condition"
 	StepTypeFork      StepType = "fork"
 	StepTypeJoin      StepType = "join"
+	StepTypeSavePoint StepType = "save_point"
 )
 
 type JoinStrategy string

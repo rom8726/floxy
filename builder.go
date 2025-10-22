@@ -330,6 +330,34 @@ func (builder *Builder) ForkJoin(
 	return builder.JoinStep(joinName, waitFor, joinStrategy)
 }
 
+func (builder *Builder) SavePoint(name string) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
+	if name == "" {
+		builder.err = errors.New("SavePoint called with no name")
+
+		return builder
+	}
+
+	step := &StepDefinition{
+		Name:     name,
+		Type:     StepTypeSavePoint,
+		Metadata: make(map[string]string),
+	}
+
+	builder.steps[name] = step
+
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
+
+	builder.currentStep = name
+
+	return builder
+}
+
 func (builder *Builder) Build() (*WorkflowDefinition, error) {
 	if builder.err != nil {
 		return nil, builder.err
