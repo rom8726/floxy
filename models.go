@@ -1,7 +1,6 @@
 package floxy
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 )
