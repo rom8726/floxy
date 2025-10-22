@@ -79,14 +79,16 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 	return instanceID, nil
 }
 
-func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) error {
-	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty bool, err error) {
+	err = engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
 		item, err := engine.store.DequeueStep(ctx, workerID)
 		if err != nil {
 			return fmt.Errorf("dequeue step: %w", err)
 		}
 
 		if item == nil {
+			empty = true
+
 			return nil
 		}
 
@@ -125,6 +127,11 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) error {
 
 		return engine.executeStep(ctx, instance, step)
 	})
+	if err != nil {
+		return empty, err
+	}
+
+	return empty, nil
 }
 
 func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
@@ -385,6 +392,7 @@ func (engine *Engine) handleStepFailure(
 
 	if (step.RetryCount == 0 && stepDef.MaxRetries > 0) ||
 		(step.RetryCount > 0 && step.RetryCount < step.MaxRetries && !stepDef.NoIdempotent) {
+		step.RetryCount++
 
 		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
 			return fmt.Errorf("update step: %w", err)
@@ -392,7 +400,7 @@ func (engine *Engine) handleStepFailure(
 
 		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepRetry, map[string]any{
 			KeyStepName:   step.StepName,
-			KeyRetryCount: step.RetryCount + 1,
+			KeyRetryCount: step.RetryCount,
 			KeyError:      errMsg,
 		})
 
@@ -415,17 +423,13 @@ func (engine *Engine) handleStepFailure(
 	// Try to rollback to save point before handling failure
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err == nil {
-		if rollbackErr := engine.rollbackToSavePoint(ctx, instance.ID, step.StepName, def); rollbackErr != nil {
+		if rollbackErr := engine.rollbackToSavePoint(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
 				KeyStepName: step.StepName,
 				KeyError:    fmt.Sprintf("rollback failed: %v", rollbackErr),
 			})
 		}
-	}
-
-	if stepDef.OnFailure != "" {
-		return engine.enqueueNextSteps(ctx, instance.ID, []string{stepDef.OnFailure}, step.Input)
 	}
 
 	return engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg)
@@ -682,15 +686,15 @@ func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {
 func (engine *Engine) rollbackToSavePoint(
 	ctx context.Context,
 	instanceID int64,
-	failedStepName string,
+	failedStep *WorkflowStep,
 	def *WorkflowDefinition,
 ) error {
-	savePointName := engine.findNearestSavePoint(failedStepName, def)
+	savePointName := engine.findNearestSavePoint(failedStep.StepName, def)
 	if savePointName == "" {
-		return engine.rollbackAllSteps(ctx, instanceID, failedStepName, def)
+		return engine.rollbackAllSteps(ctx, instanceID, failedStep, def)
 	}
 
-	return engine.rollbackStepsToSavePoint(ctx, instanceID, failedStepName, savePointName, def)
+	return engine.rollbackStepsToSavePoint(ctx, instanceID, failedStep, savePointName, def)
 }
 
 func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinition) string {
@@ -720,7 +724,7 @@ func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinit
 func (engine *Engine) rollbackAllSteps(
 	ctx context.Context,
 	instanceID int64,
-	failedStepName string,
+	failedStep *WorkflowStep,
 	def *WorkflowDefinition,
 ) error {
 	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
@@ -729,7 +733,7 @@ func (engine *Engine) rollbackAllSteps(
 	}
 
 	for _, step := range steps {
-		if step.Status == StepStatusCompleted {
+		if step.Status == StepStatusCompleted || step.Status == StepStatusFailed {
 			if err := engine.rollbackStep(ctx, step, def); err != nil {
 				return fmt.Errorf("rollback step %s: %w", step.StepName, err)
 			}
@@ -742,7 +746,8 @@ func (engine *Engine) rollbackAllSteps(
 func (engine *Engine) rollbackStepsToSavePoint(
 	ctx context.Context,
 	instanceID int64,
-	failedStepName, savePointName string,
+	failedStep *WorkflowStep,
+	savePointName string,
 	def *WorkflowDefinition,
 ) error {
 	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
@@ -754,8 +759,11 @@ func (engine *Engine) rollbackStepsToSavePoint(
 	for _, step := range steps {
 		stepMap[step.StepName] = step
 	}
+	if _, exists := stepMap[failedStep.StepName]; !exists {
+		stepMap[failedStep.StepName] = failedStep
+	}
 
-	return engine.rollbackStepChain(ctx, failedStepName, savePointName, def, stepMap)
+	return engine.rollbackStepChain(ctx, failedStep.StepName, savePointName, def, stepMap)
 }
 
 func (engine *Engine) rollbackStepChain(
@@ -773,7 +781,8 @@ func (engine *Engine) rollbackStepChain(
 		return fmt.Errorf("step definition not found: %s", currentStep)
 	}
 
-	if step, exists := stepMap[currentStep]; exists && step.Status == StepStatusCompleted {
+	if step, exists := stepMap[currentStep]; exists &&
+		(step.Status == StepStatusCompleted || step.Status == StepStatusFailed) {
 		if err := engine.rollbackStep(ctx, step, def); err != nil {
 			return fmt.Errorf("rollback step %s: %w", currentStep, err)
 		}
@@ -802,16 +811,27 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
-	handler, exists := engine.handlers[stepDef.OnFailure]
-	if !exists {
-		return fmt.Errorf("handler not found: %s", stepDef.Handler)
+	onFailureStep, ok := def.Definition.Steps[stepDef.OnFailure]
+	if !ok {
+		return nil
 	}
+
+	handler, exists := engine.handlers[onFailureStep.Handler]
+	if !exists {
+		return nil
+	}
+
+	variables := make(map[string]string, len(onFailureStep.Metadata)+1)
+	for k, v := range onFailureStep.Metadata {
+		variables[k] = v
+	}
+	variables["reason"] = "error"
 
 	stepCtx := &executionContext{
 		instanceID: step.InstanceID,
 		stepName:   step.StepName,
 		retryCount: step.RetryCount,
-		variables:  stepDef.Metadata,
+		variables:  variables,
 	}
 
 	// Execute the handler in compensation mode

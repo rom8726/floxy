@@ -180,11 +180,11 @@ func main() {
 		SavePoint("payment-checkpoint").
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(1)).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(1)).
-		OnFailure("send-failure-notification", "notification",
-			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
-				"message": "Order processing failed!",
-			})).
+		OnFailure("ship-order-failure", "compensation",
+			floxy.WithStepMaxRetries(0), floxy.WithStepMetadata(map[string]string{
+				"action": "return",
+			}),
+		).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),
 			floxy.WithStepMetadata(map[string]string{
@@ -243,11 +243,15 @@ func main() {
 
 	// Process workflows
 	fmt.Println("\n=== Processing Workflows ===")
-	for i := 0; i < 10; i++ {
+	for i := range 100 {
+		i = i
 		// Process workflows
-		err := engine.ExecuteNext(ctx, "worker1")
+		isEmpty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			fmt.Printf("ExecuteNext: %v\n", err)
+		}
+		if isEmpty {
+			break
 		}
 
 		time.Sleep(100 * time.Millisecond)

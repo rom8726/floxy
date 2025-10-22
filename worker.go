@@ -41,7 +41,7 @@ func (w *Worker) Start(ctx context.Context) {
 
 			return
 		case <-ticker.C:
-			if err := w.processNext(ctx); err != nil {
+			if _, err := w.processNext(ctx); err != nil {
 				log.Printf("Workflow worker %s error: %v", w.workerID, err)
 			}
 		}
@@ -52,7 +52,7 @@ func (w *Worker) Stop() {
 	close(w.stopCh)
 }
 
-func (w *Worker) processNext(ctx context.Context) error {
+func (w *Worker) processNext(ctx context.Context) (bool, error) {
 	return w.engine.ExecuteNext(ctx, w.workerID)
 }
 
