@@ -706,6 +706,15 @@ func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinit
 		if !ok {
 			break
 		}
+		if stepDef.Prev == "" {
+			for _, stepDefCurr := range def.Definition.Steps {
+				if stepDefCurr.Prev != "" {
+					stepDef = stepDefCurr
+
+					break
+				}
+			}
+		}
 
 		if stepDef.Type == StepTypeSavePoint {
 			return stepName
@@ -714,7 +723,7 @@ func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinit
 		stepName = stepDef.Prev
 	}
 
-	return ""
+	return rootStep
 }
 
 func (engine *Engine) rollbackStepsToSavePoint(
@@ -737,7 +746,7 @@ func (engine *Engine) rollbackStepsToSavePoint(
 		stepMap[failedStep.StepName] = failedStep
 	}
 
-	return engine.rollbackStepChain(ctx, failedStep.StepName, savePointName, def, stepMap)
+	return engine.rollbackStepChain(ctx, failedStep.StepName, savePointName, def, stepMap, false)
 }
 
 func (engine *Engine) rollbackStepChain(
@@ -745,6 +754,7 @@ func (engine *Engine) rollbackStepChain(
 	currentStep, savePointName string,
 	def *WorkflowDefinition,
 	stepMap map[string]*WorkflowStep,
+	isParallel bool,
 ) error {
 	if currentStep == savePointName {
 		return nil // Reached save point
@@ -765,15 +775,15 @@ func (engine *Engine) rollbackStepChain(
 	// Handle parallel steps (fork branches)
 	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
 		for _, parallelStepName := range stepDef.Parallel {
-			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap); err != nil {
+			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Continue with a previous step
-	if stepDef.Prev != "" {
-		return engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap)
+	if stepDef.Prev != "" && !isParallel {
+		return engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap, isParallel)
 	}
 
 	return nil

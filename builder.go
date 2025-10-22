@@ -8,6 +8,8 @@ import (
 
 const (
 	defaultMaxRetries = 3
+
+	rootStep = "_root_"
 )
 
 type Builder struct {
@@ -67,6 +69,7 @@ func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder 
 
 	if builder.startStep == "" {
 		builder.startStep = name
+		step.Prev = rootStep
 	}
 
 	if builder.currentStep != "" && builder.currentStep != name {
@@ -233,6 +236,7 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 
 	if builder.startStep == "" {
 		builder.startStep = name
+		forkStep.Prev = rootStep
 	}
 
 	if builder.currentStep != "" && builder.currentStep != name {

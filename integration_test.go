@@ -60,10 +60,10 @@ func setupTestDatabase(t *testing.T) (testcontainers.Container, *pgxpool.Pool) {
 
 func TestIntegration_DataPipeline(t *testing.T) {
 	container, pool := setupTestDatabase(t)
-	defer func() {
+	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
-	}()
+	})
 
 	ctx := context.Background()
 	store := NewStore(pool)
@@ -142,10 +142,10 @@ func TestIntegration_DataPipeline(t *testing.T) {
 
 func TestIntegration_Ecommerce(t *testing.T) {
 	container, pool := setupTestDatabase(t)
-	defer func() {
+	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
-	}()
+	})
 
 	ctx := context.Background()
 	store := NewStore(pool)
@@ -230,10 +230,10 @@ func TestIntegration_Ecommerce(t *testing.T) {
 
 func TestIntegration_Microservices(t *testing.T) {
 	container, pool := setupTestDatabase(t)
-	defer func() {
+	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
-	}()
+	})
 
 	ctx := context.Background()
 	store := NewStore(pool)
@@ -335,10 +335,10 @@ done:
 
 func TestIntegration_SavePointDemo(t *testing.T) {
 	container, pool := setupTestDatabase(t)
-	defer func() {
+	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
-	}()
+	})
 
 	ctx := context.Background()
 	store := NewStore(pool)
@@ -424,10 +424,10 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 
 func TestIntegration_RollbackDemo(t *testing.T) {
 	container, pool := setupTestDatabase(t)
-	defer func() {
+	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
-	}()
+	})
 
 	ctx := context.Background()
 	store := NewStore(pool)

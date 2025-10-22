@@ -287,7 +287,8 @@ func main() {
 				branch.Step("extract-source2", "data-extractor", floxy.WithStepMaxRetries(2))
 			},
 			func(branch *floxy.Builder) {
-				branch.Step("extract-source3", "data-extractor", floxy.WithStepMaxRetries(2))
+				branch.Step("extract-source3", "data-extractor", floxy.WithStepMaxRetries(2)).
+					Then("extract-source4", "data-extractor", floxy.WithStepMaxRetries(0))
 			},
 		).
 		JoinStep("join-data", []string{"extract-source1", "extract-source2", "extract-source3"}, floxy.JoinStrategyAll).
