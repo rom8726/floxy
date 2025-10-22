@@ -48,8 +48,8 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 		return 0, fmt.Errorf("create instance: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, nil, "workflow_started", map[string]any{
-		"workflow_id": workflowID,
+	_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowStarted, map[string]any{
+		KeyWorkflowID: workflowID,
 	})
 
 	if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusRunning, nil, nil); err != nil {
@@ -131,9 +131,9 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		return fmt.Errorf("update step status: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "step_started", map[string]any{
-		"step_name": step.StepName,
-		"step_type": stepDef.Type,
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepStarted, map[string]any{
+		KeyStepName: step.StepName,
+		KeyStepType: stepDef.Type,
 	})
 
 	var output json.RawMessage
@@ -189,8 +189,8 @@ func (engine *Engine) executeFork(
 	step *WorkflowStep,
 	stepDef *StepDefinition,
 ) (json.RawMessage, error) {
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "fork_started", map[string]any{
-		"parallel_steps": stepDef.Parallel,
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventForkStarted, map[string]any{
+		KeyParallelSteps: stepDef.Parallel,
 	})
 
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
@@ -241,17 +241,17 @@ func (engine *Engine) executeFork(
 				return nil, fmt.Errorf("create join state: %w", err)
 			}
 
-			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "join_state_created", map[string]any{
-				"join_step":   nextStepName,
-				"waiting_for": waitFor,
-				"strategy":    strategy,
+			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventJoinStateCreated, map[string]any{
+				KeyJoinStep:   nextStepName,
+				KeyWaitingFor: waitFor,
+				KeyStrategy:   strategy,
 			})
 		}
 	}
 
 	return json.Marshal(map[string]any{
-		"status":         "forked",
-		"parallel_steps": stepDef.Parallel,
+		KeyStatus:        "forked",
+		KeyParallelSteps: stepDef.Parallel,
 	})
 }
 
@@ -266,11 +266,11 @@ func (engine *Engine) executeJoin(
 		return nil, fmt.Errorf("get join state: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "join_check", map[string]any{
-		"waiting_for": joinState.WaitingFor,
-		"completed":   joinState.Completed,
-		"failed":      joinState.Failed,
-		"is_ready":    joinState.IsReady,
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventJoinCheck, map[string]any{
+		KeyWaitingFor: joinState.WaitingFor,
+		KeyCompleted:  joinState.Completed,
+		KeyFailed:     joinState.Failed,
+		KeyIsReady:    joinState.IsReady,
 	})
 
 	if !joinState.IsReady {
@@ -278,9 +278,9 @@ func (engine *Engine) executeJoin(
 	}
 
 	results := make(map[string]any)
-	results["completed"] = joinState.Completed
-	results["failed"] = joinState.Failed
-	results["strategy"] = joinState.JoinStrategy
+	results[KeyCompleted] = joinState.Completed
+	results[KeyFailed] = joinState.Failed
+	results[KeyStrategy] = joinState.JoinStrategy
 
 	steps, err := engine.store.GetStepsByInstance(ctx, instance.ID)
 	if err != nil {
@@ -295,18 +295,18 @@ func (engine *Engine) executeJoin(
 			}
 		}
 	}
-	results["outputs"] = outputs
+	results[KeyOutputs] = outputs
 
 	if len(joinState.Failed) > 0 && joinState.JoinStrategy == JoinStrategyAll {
-		results["status"] = "failed"
+		results[KeyStatus] = "failed"
 		failedData, _ := json.Marshal(results)
 
 		return failedData, fmt.Errorf("join failed: %d steps failed", len(joinState.Failed))
 	}
 
-	results["status"] = "success"
+	results[KeyStatus] = "success"
 
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "join_completed", results)
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventJoinCompleted, results)
 
 	return json.Marshal(results)
 }
@@ -322,8 +322,8 @@ func (engine *Engine) handleStepSuccess(
 		return fmt.Errorf("update step: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "step_completed", map[string]any{
-		"step_name": step.StepName,
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+		KeyStepName: step.StepName,
 	})
 
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, true); err != nil {
@@ -375,10 +375,10 @@ func (engine *Engine) handleStepFailure(
 			return fmt.Errorf("update step: %w", err)
 		}
 
-		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "step_retry", map[string]any{
-			"step_name":   step.StepName,
-			"retry_count": step.RetryCount + 1,
-			"error":       errMsg,
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepRetry, map[string]any{
+			KeyStepName:   step.StepName,
+			KeyRetryCount: step.RetryCount + 1,
+			KeyError:      errMsg,
 		})
 
 		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, 0)
@@ -388,9 +388,9 @@ func (engine *Engine) handleStepFailure(
 		return fmt.Errorf("update step: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, "step_failed", map[string]any{
-		"step_name": step.StepName,
-		"error":     errMsg,
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+		KeyStepName: step.StepName,
+		KeyError:    errMsg,
 	})
 
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, false); err != nil {
@@ -447,11 +447,11 @@ func (engine *Engine) notifyJoinSteps(
 			return fmt.Errorf("update join state for %s: %w", stepName, err)
 		}
 
-		_ = engine.store.LogEvent(ctx, instanceID, nil, "join_updated", map[string]any{
-			"join_step":      stepName,
-			"completed_step": completedStepName,
-			"success":        success,
-			"is_ready":       isReady,
+		_ = engine.store.LogEvent(ctx, instanceID, nil, EventJoinUpdated, map[string]any{
+			KeyJoinStep:      stepName,
+			KeyCompletedStep: completedStepName,
+			KeySuccess:       success,
+			KeyIsReady:       isReady,
 		})
 
 		if isReady {
@@ -491,8 +491,8 @@ func (engine *Engine) notifyJoinSteps(
 					return fmt.Errorf("enqueue join step: %w", err)
 				}
 
-				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, "join_ready", map[string]any{
-					"join_step": stepName,
+				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+					KeyJoinStep: stepName,
 				})
 			}
 		}
@@ -591,8 +591,8 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 		return fmt.Errorf("update instance status: %w", err)
 	}
 
-	_ = engine.store.LogEvent(ctx, instance.ID, nil, "workflow_completed", map[string]any{
-		"workflow_id": instance.WorkflowID,
+	_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowCompleted, map[string]any{
+		KeyWorkflowID: instance.WorkflowID,
 	})
 
 	return nil
