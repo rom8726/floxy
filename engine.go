@@ -159,6 +159,8 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		output, stepErr = engine.executeJoin(ctx, instance, step, stepDef)
 	case StepTypeParallel:
 		output, stepErr = engine.executeFork(ctx, instance, step, stepDef)
+	case StepTypeSavePoint:
+		output = step.Input
 	default:
 		stepErr = fmt.Errorf("unsupported step type: %s", stepDef.Type)
 	}
@@ -408,6 +410,18 @@ func (engine *Engine) handleStepFailure(
 
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, false); err != nil {
 		return fmt.Errorf("notify join steps: %w", err)
+	}
+
+	// Try to rollback to save point before handling failure
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err == nil {
+		if rollbackErr := engine.rollbackToSavePoint(ctx, instance.ID, step.StepName, def); rollbackErr != nil {
+			// Log rollback error but continue with failure handling
+			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+				KeyStepName: step.StepName,
+				KeyError:    fmt.Sprintf("rollback failed: %v", rollbackErr),
+			})
+		}
 	}
 
 	if stepDef.OnFailure != "" {
@@ -661,6 +675,161 @@ func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+func (engine *Engine) rollbackToSavePoint(
+	ctx context.Context,
+	instanceID int64,
+	failedStepName string,
+	def *WorkflowDefinition,
+) error {
+	savePointName := engine.findNearestSavePoint(failedStepName, def)
+	if savePointName == "" {
+		return engine.rollbackAllSteps(ctx, instanceID, failedStepName, def)
+	}
+
+	return engine.rollbackStepsToSavePoint(ctx, instanceID, failedStepName, savePointName, def)
+}
+
+func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinition) string {
+	visited := make(map[string]bool)
+
+	for stepName != "" {
+		if visited[stepName] {
+			break // Prevent infinite loops
+		}
+		visited[stepName] = true
+
+		stepDef, ok := def.Definition.Steps[stepName]
+		if !ok {
+			break
+		}
+
+		if stepDef.Type == StepTypeSavePoint {
+			return stepName
+		}
+
+		stepName = stepDef.Prev
+	}
+
+	return ""
+}
+
+func (engine *Engine) rollbackAllSteps(
+	ctx context.Context,
+	instanceID int64,
+	failedStepName string,
+	def *WorkflowDefinition,
+) error {
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get steps by instance: %w", err)
+	}
+
+	for _, step := range steps {
+		if step.Status == StepStatusCompleted {
+			if err := engine.rollbackStep(ctx, step, def); err != nil {
+				return fmt.Errorf("rollback step %s: %w", step.StepName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (engine *Engine) rollbackStepsToSavePoint(
+	ctx context.Context,
+	instanceID int64,
+	failedStepName, savePointName string,
+	def *WorkflowDefinition,
+) error {
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get steps by instance: %w", err)
+	}
+
+	stepMap := make(map[string]*WorkflowStep)
+	for _, step := range steps {
+		stepMap[step.StepName] = step
+	}
+
+	return engine.rollbackStepChain(ctx, failedStepName, savePointName, def, stepMap)
+}
+
+func (engine *Engine) rollbackStepChain(
+	ctx context.Context,
+	currentStep, savePointName string,
+	def *WorkflowDefinition,
+	stepMap map[string]*WorkflowStep,
+) error {
+	if currentStep == savePointName {
+		return nil // Reached save point
+	}
+
+	stepDef, ok := def.Definition.Steps[currentStep]
+	if !ok {
+		return fmt.Errorf("step definition not found: %s", currentStep)
+	}
+
+	if step, exists := stepMap[currentStep]; exists && step.Status == StepStatusCompleted {
+		if err := engine.rollbackStep(ctx, step, def); err != nil {
+			return fmt.Errorf("rollback step %s: %w", currentStep, err)
+		}
+	}
+
+	// Handle parallel steps (fork branches)
+	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
+		for _, parallelStepName := range stepDef.Parallel {
+			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Continue with a previous step
+	if stepDef.Prev != "" {
+		return engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap)
+	}
+
+	return nil
+}
+
+func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def *WorkflowDefinition) error {
+	stepDef, ok := def.Definition.Steps[step.StepName]
+	if !ok {
+		return fmt.Errorf("step definition not found: %s", step.StepName)
+	}
+
+	handler, exists := engine.handlers[stepDef.OnFailure]
+	if !exists {
+		return fmt.Errorf("handler not found: %s", stepDef.Handler)
+	}
+
+	stepCtx := &executionContext{
+		instanceID: step.InstanceID,
+		stepName:   step.StepName,
+		retryCount: step.RetryCount,
+		variables:  stepDef.Metadata,
+	}
+
+	// Execute the handler in compensation mode
+	_, err := handler.Execute(ctx, stepCtx, step.Input)
+	if err != nil {
+		return fmt.Errorf("execute compensation for step %q: %w", step.StepName, err)
+	}
+
+	// Update step status to rolled back
+	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+		return fmt.Errorf("update step status: %w", err)
+	}
+
+	_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
+		KeyStepName: step.StepName,
+		KeyStepType: step.StepType,
+		KeyError:    "step rolled back",
+	})
 
 	return nil
 }

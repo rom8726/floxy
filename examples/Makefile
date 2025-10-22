@@ -15,3 +15,6 @@ data-pipeline: ## Run data pipeline example
 
 microservices: ## Run microservices example
 	cd microservices && go mod tidy && go run main.go
+
+savepoint: ## Run rollback to savepoint example
+	cd savepoint_demo && go mod tidy && go run main.go

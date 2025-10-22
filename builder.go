@@ -55,6 +55,7 @@ func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder 
 		Handler:    handler,
 		MaxRetries: builder.defaultMaxRetries,
 		Next:       []string{},
+		Prev:       builder.currentStep,
 		Metadata:   make(map[string]string),
 	}
 
@@ -97,6 +98,7 @@ func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Bui
 		Type:       StepTypeTask,
 		Handler:    handler,
 		MaxRetries: builder.defaultMaxRetries,
+		Prev:       "", // Compensation steps don't have prev in the main flow
 	}
 	for _, opt := range opts {
 		opt(compensation)
@@ -163,6 +165,7 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 	parallelStep := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeParallel,
+		Prev:     builder.currentStep,
 		Metadata: make(map[string]string),
 		Parallel: []string{},
 	}
@@ -195,6 +198,8 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 			return builder
 		}
 
+		// Set the parallel step as prev for each task
+		task.Prev = name
 		builder.steps[task.Name] = task
 
 		parallelStep.Parallel = append(parallelStep.Parallel, task.Name)
@@ -220,6 +225,7 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 	forkStep := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeFork,
+		Prev:     builder.currentStep,
 		Metadata: make(map[string]string),
 	}
 
@@ -262,6 +268,11 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 				return builder
 			}
 
+			// Set the fork step as prev for the first step of each branch
+			if stepName == sub.startStep {
+				stepDef.Prev = name
+			}
+
 			builder.steps[stepName] = stepDef
 		}
 
@@ -299,6 +310,7 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 		Type:         StepTypeJoin,
 		WaitFor:      waitFor,
 		JoinStrategy: strategy,
+		Prev:         builder.currentStep,
 		Metadata:     make(map[string]string),
 	}
 
@@ -344,6 +356,7 @@ func (builder *Builder) SavePoint(name string) *Builder {
 	step := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeSavePoint,
+		Prev:     builder.currentStep,
 		Metadata: make(map[string]string),
 	}
 
@@ -484,6 +497,7 @@ func NewTask(name, handler string, opts ...StepOption) *StepDefinition {
 		Name:       name,
 		Handler:    handler,
 		Type:       StepTypeTask,
+		Prev:       "", // NewTask doesn't have currentStep context
 		Metadata:   make(map[string]string),
 		MaxRetries: defaultMaxRetries,
 	}

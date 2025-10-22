@@ -18,11 +18,12 @@ const (
 type StepStatus string
 
 const (
-	StepStatusPending   StepStatus = "pending"
-	StepStatusRunning   StepStatus = "running"
-	StepStatusCompleted StepStatus = "completed"
-	StepStatusFailed    StepStatus = "failed"
-	StepStatusSkipped   StepStatus = "skipped"
+	StepStatusPending    StepStatus = "pending"
+	StepStatusRunning    StepStatus = "running"
+	StepStatusCompleted  StepStatus = "completed"
+	StepStatusFailed     StepStatus = "failed"
+	StepStatusSkipped    StepStatus = "skipped"
+	StepStatusRolledBack StepStatus = "rolled_back"
 )
 
 type StepType string
@@ -62,6 +63,7 @@ type StepDefinition struct {
 	Handler      string            `json:"handler"`
 	MaxRetries   int               `json:"max_retries"`
 	Next         []string          `json:"next"`
+	Prev         string            `json:"prev"`          // previous step in the chain
 	OnFailure    string            `json:"on_failure"`    // compensation step
 	Condition    string            `json:"condition"`     // for conditional transitions
 	Parallel     []string          `json:"parallel"`      // for parallel steps (fork)
