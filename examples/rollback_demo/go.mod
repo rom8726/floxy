@@ -1,4 +1,4 @@
-module microservices
+module rollback-demo
 
 go 1.24.0
 

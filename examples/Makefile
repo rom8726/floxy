@@ -18,3 +18,6 @@ microservices: ## Run microservices example
 
 savepoint: ## Run rollback to savepoint example
 	cd savepoint_demo && go mod tidy && go run main.go
+
+rollback: ## Run rollback example
+	cd rollback_demo && go mod tidy && go run main.go

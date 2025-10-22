@@ -30,11 +30,6 @@ func (h *PaymentHandler) Execute(ctx context.Context, stepCtx floxy.StepContext,
 	// Simulate payment processing
 	time.Sleep(100 * time.Millisecond)
 
-	//// Simulate payment failure for demonstration
-	//if amount > 1000 {
-	//	return nil, fmt.Errorf("payment declined: amount too high")
-	//}
-
 	result := map[string]any{
 		"transaction_id": fmt.Sprintf("txn_%d", time.Now().Unix()),
 		"amount":         amount,
@@ -86,27 +81,14 @@ func (h *ShippingHandler) Execute(ctx context.Context, stepCtx floxy.StepContext
 	_ = json.Unmarshal(input, &inventory)
 
 	order := inventory["order"].(map[string]any)
-	payment := inventory["payment"].(map[string]any)
 
 	fmt.Printf("Shipping order for user %s\n", order["user_id"])
-
-	if payment["amount"].(float64) > 1000 {
-		return nil, fmt.Errorf("payment declined: amount too high")
-	}
 
 	// Simulate shipping
 	time.Sleep(75 * time.Millisecond)
 
-	result := map[string]any{
-		"tracking_number": fmt.Sprintf("TRK_%d", time.Now().Unix()),
-		"status":          "shipped",
-		"timestamp":       time.Now().Unix(),
-		"order":           order,
-		"payment":         payment,
-		"inventory":       inventory,
-	}
-
-	return json.Marshal(result)
+	// Force failure for demonstration
+	return nil, fmt.Errorf("shipping service unavailable")
 }
 
 type NotificationHandler struct{}
@@ -179,21 +161,38 @@ func main() {
 	engine.RegisterHandler(&NotificationHandler{})
 	engine.RegisterHandler(&CompensationHandler{})
 
-	// Create workflow with SavePoint
-	workflowDef, err := floxy.NewBuilder("savepoint-demo", 1).
+	// Create workflow with SavePoint and OnFailure handlers for all steps
+	workflowDef, err := floxy.NewBuilder("rollback-demo", 1).
 		Step("process-payment", "payment", floxy.WithStepMaxRetries(2)).
-		SavePoint("payment-checkpoint").
+		OnFailure("refund-payment", "compensation",
+			floxy.WithStepMaxRetries(1),
+			floxy.WithStepMetadata(map[string]string{
+				"action": "refund",
+				"reason": "payment_failed",
+			})).
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(1)).
+		OnFailure("release-inventory", "compensation",
+			floxy.WithStepMaxRetries(1),
+			floxy.WithStepMetadata(map[string]string{
+				"action": "release",
+				"reason": "inventory_failed",
+			})).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(1)).
-		OnFailure("ship-order-failure", "compensation",
-			floxy.WithStepMaxRetries(0), floxy.WithStepMetadata(map[string]string{
-				"action": "return",
-			}),
-		).
+		OnFailure("cancel-shipment", "compensation",
+			floxy.WithStepMaxRetries(1),
+			floxy.WithStepMetadata(map[string]string{
+				"action": "cancel",
+				"reason": "shipping_failed",
+			})).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),
 			floxy.WithStepMetadata(map[string]string{
 				"message": "Order processed successfully!",
+			})).
+		OnFailure("send-failure-notification", "notification",
+			floxy.WithStepMaxRetries(1),
+			floxy.WithStepMetadata(map[string]string{
+				"message": "Order processing failed!",
 			})).
 		Build()
 
@@ -206,51 +205,36 @@ func main() {
 		log.Fatalf("Failed to register workflow: %v", err)
 	}
 
-	fmt.Println("=== SavePoint Demo Workflow ===")
+	fmt.Println("=== Rollback Demo Workflow ===")
 	fmt.Printf("Workflow ID: %s\n", workflowDef.ID)
 	fmt.Println("Steps:")
 	for name, step := range workflowDef.Definition.Steps {
-		fmt.Printf("  - %s (type: %s, prev: %s)\n", name, step.Type, step.Prev)
+		fmt.Printf("  - %s (type: %s, prev: %s, on_failure: %s)\n",
+			name, step.Type, step.Prev, step.OnFailure)
 	}
 	fmt.Println()
 
-	// Test case 1: Successful order
-	fmt.Println("=== Test Case 1: Successful Order ===")
-	order1 := map[string]any{
-		"user_id": "user123",
-		"amount":  500.0,
-		"items":   []string{"item1", "item2"},
+	// Test case: Order that will fail and trigger rollback
+	fmt.Println("=== Test Case: Order with Rollback ===")
+	order := map[string]any{
+		"user_id": "user789",
+		"amount":  750.0,
+		"items":   []string{"item5", "item6", "item7"},
 	}
 
-	input1, _ := json.Marshal(order1)
-	instanceID1, err := engine.Start(ctx, "savepoint-demo-v1", input1)
+	input, _ := json.Marshal(order)
+	instanceID, err := engine.Start(ctx, "rollback-demo-v1", input)
 	if err != nil {
 		log.Printf("Failed to start workflow: %v", err)
 	} else {
-		fmt.Printf("Started workflow instance: %d\n", instanceID1)
+		fmt.Printf("Started workflow instance: %d\n", instanceID)
 	}
 
-	// Test case 2: Failed order (high amount)
-	fmt.Println("\n=== Test Case 2: Failed Order (High Amount) ===")
-	order2 := map[string]any{
-		"user_id": "user456",
-		"amount":  1500.0,
-		"items":   []string{"item3", "item4"},
-	}
-
-	input2, _ := json.Marshal(order2)
-	instanceID2, err := engine.Start(ctx, "savepoint-demo-v1", input2)
-	if err != nil {
-		log.Printf("Failed to start workflow: %v", err)
-	} else {
-		fmt.Printf("Started workflow instance: %d\n", instanceID2)
-	}
-
-	// Process workflows
-	fmt.Println("\n=== Processing Workflows ===")
+	// Process workflow
+	fmt.Println("\n=== Processing Workflow ===")
 	for i := range 100 {
 		i = i
-		// Process workflows
+		// Process workflow
 		isEmpty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			fmt.Printf("ExecuteNext: %v\n", err)
@@ -264,13 +248,15 @@ func main() {
 
 	// Check final status
 	fmt.Println("\n=== Final Status ===")
-	if instanceID1 > 0 {
-		status1, _ := engine.GetStatus(ctx, instanceID1)
-		fmt.Printf("Instance %d status: %s\n", instanceID1, status1)
-	}
+	if instanceID > 0 {
+		status, _ := engine.GetStatus(ctx, instanceID)
+		fmt.Printf("Instance %d status: %s\n", instanceID, status)
 
-	if instanceID2 > 0 {
-		status2, _ := engine.GetStatus(ctx, instanceID2)
-		fmt.Printf("Instance %d status: %s\n", instanceID2, status2)
+		// Get steps to see rollback status
+		steps, _ := engine.GetSteps(ctx, instanceID)
+		fmt.Println("\nStep Status:")
+		for _, step := range steps {
+			fmt.Printf("  - %s: %s\n", step.StepName, step.Status)
+		}
 	}
 }
