@@ -1026,10 +1026,10 @@ func TestEngine_GetStatus(t *testing.T) {
 
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(expectedInstance, nil)
 
-	instance, err := engine.GetStatus(context.Background(), instanceID)
+	status, err := engine.GetStatus(context.Background(), instanceID)
 
 	assert.NoError(t, err)
-	assert.Equal(t, expectedInstance, instance)
+	assert.Equal(t, StatusRunning, status)
 }
 
 func TestEngine_GetSteps(t *testing.T) {

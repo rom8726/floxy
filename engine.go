@@ -188,7 +188,7 @@ func (engine *Engine) executeTask(
 		instanceID: instance.ID,
 		stepName:   step.StepName,
 		retryCount: step.RetryCount,
-		variables:  make(map[string]any),
+		variables:  stepDef.Metadata,
 	}
 
 	return handler.Execute(ctx, execCtx, step.Input)
@@ -609,8 +609,13 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 	return nil
 }
 
-func (engine *Engine) GetStatus(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
-	return engine.store.GetInstance(ctx, instanceID)
+func (engine *Engine) GetStatus(ctx context.Context, instanceID int64) (WorkflowStatus, error) {
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return "", fmt.Errorf("get instance: %w", err)
+	}
+
+	return instance.Status, nil
 }
 
 func (engine *Engine) GetSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
