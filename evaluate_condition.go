@@ -9,8 +9,8 @@ import (
 
 func evaluateCondition(expr string, stepCtx StepContext) (bool, error) {
 	tpl, err := template.New("condition").Funcs(template.FuncMap{
-		"eq": func(a, b any) bool { return a == b },
-		"ne": func(a, b any) bool { return a != b },
+		"eq": func(a, b any) bool { return fmt.Sprint(a) == fmt.Sprint(b) },
+		"ne": func(a, b any) bool { return fmt.Sprint(a) != fmt.Sprint(b) },
 		"gt": func(a, b any) bool { return compareNumbers(a, b) > 0 },
 		"lt": func(a, b any) bool { return compareNumbers(a, b) < 0 },
 		"ge": func(a, b any) bool { return compareNumbers(a, b) >= 0 },
