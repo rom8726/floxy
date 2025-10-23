@@ -1,0 +1,57 @@
+@startuml Saga Compensation States
+
+title Saga Compensation State Machine
+
+state "Step Lifecycle" as lifecycle {
+    [*] --> Pending : Step Created
+
+    Pending --> Running : ExecuteNext()
+    Running --> Completed : Handler Success
+    Running --> Failed : Handler Error
+
+    Completed --> [*] : Workflow Complete
+    Failed --> Compensation : Has OnFailure Handler
+    Failed --> RolledBack : No OnFailure Handler
+}
+
+state "Compensation Process" as compensation {
+    Compensation --> Compensation : Retry (if retryCount < maxRetries)
+    Compensation --> RolledBack : Success
+    Compensation --> Failed : Max Retries Exceeded
+}
+
+state "Final States" as final {
+    RolledBack : Step Successfully Compensated
+    Failed : Step Failed (No Compensation or Max Retries)
+}
+
+lifecycle --> compensation
+compensation --> final
+
+note right of Pending
+  Initial state when step is created
+end note
+
+note right of Running
+  Step is being executed by handler
+end note
+
+note right of Completed
+  Step executed successfully
+end note
+
+note right of Failed
+  Step execution failed
+end note
+
+note right of Compensation
+  Step is being compensated
+  Uses CompensationRetryCount
+end note
+
+note right of RolledBack
+  Step successfully compensated
+  or no compensation needed
+end note
+
+@enduml

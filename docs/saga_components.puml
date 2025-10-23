@@ -1,0 +1,131 @@
+@startuml Saga Compensation Architecture
+
+title Floxy Saga Compensation Architecture
+
+package "Engine Layer" {
+    class Engine {
+        +ExecuteNext()
+        +executeStep()
+        +executeCompensationStep()
+        +handleStepFailure()
+        +rollbackStep()
+        +rollbackToSavePointOrRoot()
+    }
+
+    class StepHandler {
+        +Execute()
+    }
+
+    class CompensationHandler {
+        +Execute()
+    }
+}
+
+package "Store Layer" {
+    interface Store {
+        +EnqueueStep()
+        +DequeueStep()
+        +UpdateStep()
+        +UpdateStepCompensationRetry()
+        +GetStepsByInstance()
+    }
+
+    class StoreImpl {
+        +EnqueueStep()
+        +DequeueStep()
+        +UpdateStep()
+        +UpdateStepCompensationRetry()
+    }
+}
+
+package "Models" {
+    class WorkflowStep {
+        -ID: int64
+        -Status: StepStatus
+        -RetryCount: int
+        -CompensationRetryCount: int
+        -MaxRetries: int
+    }
+
+    class QueueItem {
+        -ID: int64
+        -InstanceID: int64
+        -StepID: *int64
+        -ScheduledAt: time.Time
+    }
+
+    enum StepStatus {
+        Pending
+        Running
+        Completed
+        Failed
+        Compensation
+        RolledBack
+        Skipped
+    }
+}
+
+package "Database" {
+    class workflow_steps {
+        +id
+        +status
+        +retry_count
+        +compensation_retry_count
+        +max_retries
+    }
+
+    class workflow_queue {
+        +id
+        +instance_id
+        +step_id
+        +scheduled_at
+    }
+
+    class workflow_events {
+        +id
+        +instance_id
+        +step_id
+        +event_type
+        +payload
+    }
+}
+
+Engine --> Store : uses
+Store --> StoreImpl : implements
+StoreImpl --> Database : queries
+
+Engine --> WorkflowStep : manages
+Engine --> QueueItem : processes
+Engine --> StepStatus : uses
+
+StoreImpl --> workflow_steps : queries
+StoreImpl --> workflow_queue : queries
+StoreImpl --> workflow_events : queries
+
+Engine --> StepHandler : executes
+Engine --> CompensationHandler : executes compensation
+
+note right of Engine
+  Main orchestration engine
+  Handles step execution and
+  compensation logic
+end note
+
+note right of Store
+  Data access layer
+  Abstracts database operations
+end note
+
+note right of WorkflowStep
+  Core model representing
+  a workflow step with
+  separate retry counters
+end note
+
+note right of StepStatus
+  Compensation status
+  indicates step is being
+  compensated
+end note
+
+@enduml

@@ -1,0 +1,142 @@
+@startuml Saga Compensation Sequence
+
+title Saga Compensation Flow in Floxy
+
+participant "Engine" as E
+participant "Store" as S
+participant "StepHandler" as H
+participant "CompensationHandler" as CH
+participant "Database" as DB
+
+== Normal Step Execution ==
+E -> S: ExecuteNext()
+S -> DB: DequeueStep()
+DB --> S: QueueItem
+S --> E: QueueItem
+
+E -> S: GetInstance()
+S --> E: WorkflowInstance
+
+E -> S: GetStepsByInstance()
+S --> E: WorkflowStep[]
+
+E -> S: UpdateStep(status=running)
+S -> DB: UPDATE workflow_steps SET status='running'
+DB --> S: OK
+S --> E: OK
+
+E -> H: Execute(stepCtx, input)
+H --> E: output/error
+
+alt Step Success
+    E -> S: UpdateStep(status=completed, output)
+    S -> DB: UPDATE workflow_steps SET status='completed'
+    DB --> S: OK
+    S --> E: OK
+else Step Failure
+    E -> S: UpdateStep(status=failed, error)
+    S -> DB: UPDATE workflow_steps SET status='failed'
+    DB --> S: OK
+    S --> E: OK
+
+    == Rollback Process ==
+    E -> E: rollbackToSavePointOrRoot()
+    E -> E: rollbackStepChain()
+
+    loop For each step in rollback chain
+        E -> S: GetWorkflowDefinition()
+        S --> E: WorkflowDefinition
+
+        E -> E: rollbackStep()
+
+        alt Has OnFailure handler
+            E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
+            S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
+            DB --> S: OK
+            S --> E: OK
+
+            E -> S: EnqueueStep(stepID)
+            S -> DB: INSERT INTO workflow_queue
+            DB --> S: OK
+            S --> E: OK
+
+            E -> S: LogEvent(compensation_started)
+            S -> DB: INSERT INTO workflow_events
+            DB --> S: OK
+            S --> E: OK
+        else No OnFailure handler
+            E -> S: UpdateStep(status=rolled_back)
+            S -> DB: UPDATE workflow_steps SET status='rolled_back'
+            DB --> S: OK
+            S --> E: OK
+        end
+    end
+
+    E -> S: UpdateInstanceStatus(status=failed)
+    S -> DB: UPDATE workflow_instances SET status='failed'
+    DB --> S: OK
+    S --> E: OK
+end
+
+== Compensation Execution ==
+E -> S: ExecuteNext()
+S -> DB: DequeueStep()
+DB --> S: QueueItem (step with status=compensation)
+S --> E: QueueItem
+
+E -> S: GetStepsByInstance()
+S --> E: WorkflowStep[] (with compensation status)
+
+E -> E: executeCompensationStep()
+
+E -> S: GetWorkflowDefinition()
+S --> E: WorkflowDefinition
+
+E -> S: GetStepsByInstance()
+S --> E: WorkflowStep[]
+
+E -> CH: Execute(stepCtx, input)
+note right: stepCtx.retryCount = step.CompensationRetryCount
+
+alt Compensation Success
+    E -> S: UpdateStep(status=rolled_back)
+    S -> DB: UPDATE workflow_steps SET status='rolled_back'
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: LogEvent(compensation_success)
+    S -> DB: INSERT INTO workflow_events
+    DB --> S: OK
+    S --> E: OK
+
+else Compensation Failure
+    alt Can Retry (CompensationRetryCount < MaxRetries)
+        E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
+        S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
+        DB --> S: OK
+        S --> E: OK
+
+        E -> S: EnqueueStep(stepID)
+        S -> DB: INSERT INTO workflow_queue
+        DB --> S: OK
+        S --> E: OK
+
+        E -> S: LogEvent(compensation_retry)
+        S -> DB: INSERT INTO workflow_events
+        DB --> S: OK
+        S --> E: OK
+
+    else Max Retries Exceeded
+        E -> S: UpdateStep(status=failed, error)
+        S -> DB: UPDATE workflow_steps SET status='failed'
+        DB --> S: OK
+        S --> E: OK
+
+        E -> S: LogEvent(compensation_max_retries_exceeded)
+        S -> DB: INSERT INTO workflow_events
+        DB --> S: OK
+        S --> E: OK
+    end
+end
+
+@enduml
