@@ -1,9 +1,19 @@
 package floxy
 
+import (
+	"log"
+)
+
 type StepOption func(step *StepDefinition)
 
 func WithStepMaxRetries(maxRetries int) StepOption {
 	return func(step *StepDefinition) {
+		if step.NoIdempotent {
+			log.Println("WithStepMaxRetries: unable to set MaxRetries to not idempotent step")
+
+			return
+		}
+
 		step.MaxRetries = maxRetries
 	}
 }
@@ -17,6 +27,7 @@ func WithStepMetadata(metadata map[string]string) StepOption {
 func WithStepNoIdempotent() StepOption {
 	return func(step *StepDefinition) {
 		step.NoIdempotent = true
+		step.MaxRetries = 1
 	}
 }
 

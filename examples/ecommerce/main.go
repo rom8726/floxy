@@ -209,15 +209,6 @@ func main() {
 				"message": "Payment failed!",
 			})).
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(2)).
-		//OnFailureFlow("refund-flow", func(failureBuilder *floxy.Builder) {
-		//	failureBuilder.Step("refund-payment", "refund", floxy.WithStepMaxRetries(2)).
-		//		Then("send-refund-notification", "notification",
-		//			floxy.WithStepMaxRetries(1),
-		//			floxy.WithStepMetadata(map[string]string{
-		//				"message": "Refund processed!",
-		//			}),
-		//		)
-		//}).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(2)).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),

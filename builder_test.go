@@ -35,20 +35,6 @@ func TestWorkflowBuilder(t *testing.T) {
 		assert.Equal(t, "compensation2", wf.Definition.Steps["step2"].OnFailure)
 	})
 
-	//t.Run("with compensation flow", func(t *testing.T) {
-	//	wf, err := NewBuilder("saga-workflow", 1).
-	//		Step("step1", "handler1").
-	//		Step("step2", "handler2").
-	//		OnFailureFlow("compensation2", func(failureBuilder *Builder) {
-	//			failureBuilder.Step("compensation2_step1", "compensation2_handler1")
-	//		}).
-	//		Step("step3", "handler3").
-	//		Build()
-	//
-	//	require.NoError(t, err)
-	//	assert.Equal(t, "compensation2_step1", wf.Definition.Steps["step2"].OnFailure)
-	//})
-
 	t.Run("parallel steps", func(t *testing.T) {
 		wf, err := NewBuilder("parallel-workflow", 1).
 			Step("step1", "handler1").
@@ -148,21 +134,6 @@ func TestWorkflowBuilder(t *testing.T) {
 			}).Build()
 		require.Error(t, err)
 	})
-
-	//t.Run("error: on failure flow without step", func(t *testing.T) {
-	//	_, err := NewBuilder("noflow", 1).
-	//		OnFailureFlow("bad", func(b *Builder) {
-	//			b.Step("oops", "handler")
-	//		}).Build()
-	//	require.Error(t, err)
-	//})
-	//
-	//t.Run("error: subflow without steps", func(t *testing.T) {
-	//	_, err := NewBuilder("emptyflow", 1).
-	//		Step("s1", "h1").
-	//		OnFailureFlow("empty", func(b *Builder) {}).Build()
-	//	require.Error(t, err)
-	//})
 
 	t.Run("complex flow with fork, parallel, on-failure", func(t *testing.T) {
 		wf, err := NewBuilder("complex", 1).

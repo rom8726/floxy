@@ -919,6 +919,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
 			return fmt.Errorf("update step status: %w", err)
 		}
+
 		return nil
 	}
 
@@ -933,6 +934,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 			KeyStepType: step.StepType,
 			KeyError:    "compensation max retries exceeded",
 		})
+
 		return nil
 	}
 

@@ -113,53 +113,6 @@ func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Bui
 	return builder
 }
 
-//func (builder *Builder) OnFailureFlow(name string, fn func(failureBuilder *Builder)) *Builder {
-//	if builder.err != nil {
-//		return builder
-//	}
-//
-//	if builder.currentStep == "" {
-//		builder.err = fmt.Errorf("OnFailureFlow %q called with no step", name)
-//
-//		return builder
-//	}
-//
-//	subBuilder := &Builder{
-//		name:    builder.name + "_onfailure_" + name,
-//		version: builder.version,
-//		steps:   make(map[string]*StepDefinition),
-//	}
-//
-//	fn(subBuilder)
-//
-//	if subBuilder.startStep == "" {
-//		builder.err = fmt.Errorf("OnFailureFlow %q: sub-flow must contain at least one step", name)
-//
-//		return builder
-//	}
-//	if _, err := subBuilder.Build(); err != nil {
-//		builder.err = fmt.Errorf("OnFailureFlow %q build: %v", name, err)
-//
-//		return builder
-//	}
-//
-//	builder.subBuilders = append(builder.subBuilders, subBuilder)
-//
-//	for subStep, subDef := range subBuilder.steps {
-//		if _, ok := builder.steps[subStep]; ok {
-//			builder.err = fmt.Errorf("duplicate step %q in on-failure flow %q", subStep, name)
-//
-//			return builder
-//		}
-//
-//		builder.steps[subStep] = subDef
-//	}
-//
-//	builder.steps[builder.currentStep].OnFailure = subBuilder.startStep
-//
-//	return builder
-//}
-
 func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder {
 	if builder.err != nil {
 		return builder
