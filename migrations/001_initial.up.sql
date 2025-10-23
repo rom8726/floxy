@@ -117,6 +117,7 @@ COMMENT ON COLUMN workflows.workflow_instances.status IS 'pending | running | co
 COMMENT ON COLUMN workflows.workflow_steps.status IS 'pending | running | completed | failed | skipped';
 COMMENT ON COLUMN workflows.workflow_steps.step_type IS 'task | parallel | condition';
 
+DROP VIEW IF EXISTS workflows.active_workflows;
 CREATE OR REPLACE VIEW workflows.active_workflows AS
 SELECT
     wi.id,
@@ -134,6 +135,7 @@ FROM workflows.workflow_instances wi
 WHERE wi.status IN ('pending', 'running')
 GROUP BY wi.id, wi.workflow_id, wi.status, wi.created_at, wi.updated_at;
 
+DROP VIEW IF EXISTS workflows.workflow_stats;
 CREATE OR REPLACE VIEW workflows.workflow_stats AS
 SELECT
     wd.name,
