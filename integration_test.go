@@ -164,14 +164,14 @@ func TestIntegration_Ecommerce(t *testing.T) {
 		Step("process-payment", "payment", WithStepMaxRetries(3)).
 		OnFailure("send-payment-failure-notification", "notification",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"message": "Payment failed!",
 			})).
 		Then("reserve-inventory", "inventory", WithStepMaxRetries(2)).
 		Then("ship-order", "shipping", WithStepMaxRetries(2)).
 		Then("send-success-notification", "notification",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"message": "Order shipped successfully!",
 			}),
 		).Build()
@@ -245,7 +245,7 @@ func TestIntegration_Microservices(t *testing.T) {
 		Step("validate-user", "user-service", WithStepMaxRetries(3)).
 		OnFailure("compensate-user-validation", "compensation",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"action": "user_validation_failed",
 				"reason": "user_validation_error",
 			})).
@@ -342,13 +342,13 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 		Then("reserve-inventory", "inventory", WithStepMaxRetries(1)).
 		Then("ship-order", "shipping", WithStepMaxRetries(1)).
 		OnFailure("ship-order-failure", "compensation",
-			WithStepMaxRetries(0), WithStepMetadata(map[string]string{
+			WithStepMaxRetries(0), WithStepMetadata(map[string]any{
 				"action": "return",
 			}),
 		).
 		Then("send-success-notification", "notification",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"message": "Order processed successfully!",
 			}),
 		).Build()
@@ -429,32 +429,32 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 		Step("process-payment", "payment", WithStepMaxRetries(2)).
 		OnFailure("refund-payment", "compensation",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"action": "refund",
 				"reason": "payment_failed",
 			})).
 		Then("reserve-inventory", "inventory", WithStepMaxRetries(1)).
 		OnFailure("release-inventory", "compensation",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"action": "release",
 				"reason": "inventory_failed",
 			})).
 		Then("ship-order", "shipping", WithStepMaxRetries(1)).
 		OnFailure("cancel-shipment", "compensation",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"action": "cancel",
 				"reason": "shipping_failed",
 			})).
 		Then("send-success-notification", "notification",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"message": "Order processed successfully!",
 			})).
 		OnFailure("send-failure-notification", "notification",
 			WithStepMaxRetries(1),
-			WithStepMetadata(map[string]string{
+			WithStepMetadata(map[string]any{
 				"message": "Order processing failed!",
 			})).
 		Build()
@@ -510,6 +510,150 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 		}
 	}
 	assert.True(t, hasRolledBack, "Expected at least one step to be rolled back")
+}
+
+func TestIntegration_Condition__true(t *testing.T) {
+	container, pool := setupTestDatabase(t)
+	t.Cleanup(func() {
+		pool.Close()
+		_ = container.Terminate(context.Background())
+	})
+
+	ctx := context.Background()
+	store := NewStore(pool)
+	txManager := NewTxManager(pool)
+	engine := NewEngine(txManager, store)
+
+	// Register handlers
+	engine.RegisterHandler(&DataExtractorHandler{})
+	engine.RegisterHandler(&NotificationHandler{})
+
+	// Create workflow
+	workflowDef, err := NewBuilder("condition", 1).
+		Step("extract-data", "data-extractor", WithStepMaxRetries(1)).
+		Condition("has_records", "{{ gt .count 0 }}", func(elseBranch *Builder) {
+			elseBranch.Step("send-notification-no-records", "notification", WithStepMetadata(map[string]any{
+				"message": "No records found!",
+			}))
+		}).
+		Then("send-notification-has-records", "notification", WithStepMetadata(map[string]any{
+			"message": "Records found!",
+		})).
+		Build()
+
+	require.NoError(t, err)
+
+	// Register workflow
+	err = engine.RegisterWorkflow(ctx, workflowDef)
+	require.NoError(t, err)
+
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
+
+	// Start workflow
+	input := json.RawMessage(`{"sources": ["source1", "source2", "source3"]}`)
+	instanceID, err := engine.Start(ctx, "condition-v1", input)
+	require.NoError(t, err)
+	assert.Greater(t, instanceID, int64(0))
+
+	// Process workflow
+	for i := 0; i < 50; i++ {
+		empty, err := engine.ExecuteNext(ctx, "worker1")
+		if err != nil {
+			t.Logf("ExecuteNext error: %v", err)
+		}
+		if empty {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Check final status
+	status, err := engine.GetStatus(ctx, instanceID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, status)
+
+	// Check steps
+	steps, err := engine.GetSteps(ctx, instanceID)
+	require.NoError(t, err)
+	assert.Greater(t, len(steps), 0)
+
+	// Verify all steps are completed
+	for _, step := range steps {
+		assert.Equal(t, StepStatusCompleted, step.Status)
+	}
+}
+
+func TestIntegration_Condition__false(t *testing.T) {
+	container, pool := setupTestDatabase(t)
+	t.Cleanup(func() {
+		pool.Close()
+		_ = container.Terminate(context.Background())
+	})
+
+	ctx := context.Background()
+	store := NewStore(pool)
+	txManager := NewTxManager(pool)
+	engine := NewEngine(txManager, store)
+
+	// Register handlers
+	engine.RegisterHandler(&DataExtractorHandler{})
+	engine.RegisterHandler(&NotificationHandler{})
+
+	// Create workflow
+	workflowDef, err := NewBuilder("condition", 1).
+		Step("extract-data", "data-extractor", WithStepMaxRetries(1)).
+		Condition("has_records", "{{ eq .count 0 }}", func(elseBranch *Builder) {
+			elseBranch.Step("send-notification-no-records", "notification", WithStepMetadata(map[string]any{
+				"message": "No records found!",
+			}))
+		}).
+		Then("send-notification-has-records", "notification", WithStepMetadata(map[string]any{
+			"message": "Records found!",
+		})).
+		Build()
+
+	require.NoError(t, err)
+
+	// Register workflow
+	err = engine.RegisterWorkflow(ctx, workflowDef)
+	require.NoError(t, err)
+
+	viz := NewVisualizer()
+	fmt.Println(viz.RenderGraph(workflowDef))
+
+	// Start workflow
+	input := json.RawMessage(`{"sources": ["source1", "source2", "source3"]}`)
+	instanceID, err := engine.Start(ctx, "condition-v1", input)
+	require.NoError(t, err)
+	assert.Greater(t, instanceID, int64(0))
+
+	// Process workflow
+	for i := 0; i < 50; i++ {
+		empty, err := engine.ExecuteNext(ctx, "worker1")
+		if err != nil {
+			t.Logf("ExecuteNext error: %v", err)
+		}
+		if empty {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Check final status
+	status, err := engine.GetStatus(ctx, instanceID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, status)
+
+	// Check steps
+	steps, err := engine.GetSteps(ctx, instanceID)
+	require.NoError(t, err)
+	assert.Greater(t, len(steps), 0)
+
+	// Verify all steps are completed
+	for _, step := range steps {
+		assert.Equal(t, StepStatusCompleted, step.Status)
+	}
 }
 
 // Handler implementations for integration tests
@@ -754,7 +898,7 @@ type NotificationHandler struct{}
 func (h *NotificationHandler) Name() string { return "notification" }
 
 func (h *NotificationHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	message, _ := stepCtx.GetVariable("message")
+	message, _ := stepCtx.GetVariableAsString("message")
 
 	result := map[string]any{
 		"status":  "sent",
@@ -937,8 +1081,8 @@ type CompensationHandler struct{}
 func (h *CompensationHandler) Name() string { return "compensation" }
 
 func (h *CompensationHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	action, _ := stepCtx.GetVariable("action")
-	reason, _ := stepCtx.GetVariable("reason")
+	action, _ := stepCtx.GetVariableAsString("action")
+	reason, _ := stepCtx.GetVariableAsString("reason")
 
 	result := map[string]any{
 		"status": "compensated",

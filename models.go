@@ -59,19 +59,20 @@ type GraphDefinition struct {
 }
 
 type StepDefinition struct {
-	Name         string            `json:"name"`
-	Type         StepType          `json:"type"`
-	Handler      string            `json:"handler"`
-	MaxRetries   int               `json:"max_retries"`
-	Next         []string          `json:"next"`
-	Prev         string            `json:"prev"`          // previous step in the chain
-	OnFailure    string            `json:"on_failure"`    // compensation step
-	Condition    string            `json:"condition"`     // for conditional transitions
-	Parallel     []string          `json:"parallel"`      // for parallel steps (fork)
-	WaitFor      []string          `json:"wait_for"`      // for join, we are waiting for these steps to be completed
-	JoinStrategy JoinStrategy      `json:"join_strategy"` // "all" (default) or "any"
-	Metadata     map[string]string `json:"metadata"`
-	NoIdempotent bool              `json:"no_idempotent"`
+	Name         string         `json:"name"`
+	Type         StepType       `json:"type"`
+	Handler      string         `json:"handler"`
+	MaxRetries   int            `json:"max_retries"`
+	Next         []string       `json:"next"`
+	Prev         string         `json:"prev"`           // previous step in the chain
+	Else         string         `json:"else,omitempty"` // alternative step for condition steps for false branch
+	OnFailure    string         `json:"on_failure"`     // compensation step
+	Condition    string         `json:"condition"`      // for conditional transitions
+	Parallel     []string       `json:"parallel"`       // for parallel steps (fork)
+	WaitFor      []string       `json:"wait_for"`       // for join, we are waiting for these steps to be completed
+	JoinStrategy JoinStrategy   `json:"join_strategy"`  // "all" (default) or "any"
+	Metadata     map[string]any `json:"metadata"`
+	NoIdempotent bool           `json:"no_idempotent"`
 }
 
 type WorkflowInstance struct {

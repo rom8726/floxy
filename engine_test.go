@@ -915,7 +915,7 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	})).Return(nil)
 	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
 
-	err := engine.handleStepSuccess(context.Background(), instance, step, stepDef, output)
+	err := engine.handleStepSuccess(context.Background(), instance, step, stepDef, output, true)
 
 	assert.NoError(t, err)
 }

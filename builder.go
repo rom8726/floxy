@@ -58,7 +58,7 @@ func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder 
 		MaxRetries: builder.defaultMaxRetries,
 		Next:       []string{},
 		Prev:       builder.currentStep,
-		Metadata:   make(map[string]string),
+		Metadata:   make(map[string]any),
 	}
 
 	for _, opt := range opts {
@@ -122,7 +122,7 @@ func (builder *Builder) Parallel(name string, tasks ...*StepDefinition) *Builder
 		Name:     name,
 		Type:     StepTypeParallel,
 		Prev:     builder.currentStep,
-		Metadata: make(map[string]string),
+		Metadata: make(map[string]any),
 		Parallel: []string{},
 	}
 
@@ -182,7 +182,7 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 		Name:     name,
 		Type:     StepTypeFork,
 		Prev:     builder.currentStep,
-		Metadata: make(map[string]string),
+		Metadata: make(map[string]any),
 	}
 
 	builder.steps[name] = forkStep
@@ -268,7 +268,7 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 		WaitFor:      waitFor,
 		JoinStrategy: strategy,
 		Prev:         builder.currentStep,
-		Metadata:     make(map[string]string),
+		Metadata:     make(map[string]any),
 	}
 
 	builder.steps[name] = step
@@ -314,10 +314,82 @@ func (builder *Builder) SavePoint(name string) *Builder {
 		Name:     name,
 		Type:     StepTypeSavePoint,
 		Prev:     builder.currentStep,
-		Metadata: make(map[string]string),
+		Metadata: make(map[string]any),
 	}
 
 	builder.steps[name] = step
+
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
+
+	builder.currentStep = name
+
+	return builder
+}
+
+func (builder *Builder) Condition(name, expr string, elseBranch func(elseBranchBuilder *Builder)) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
+	if name == "" {
+		builder.err = errors.New("Condition called with no name")
+
+		return builder
+	}
+	if expr == "" {
+		builder.err = errors.New("Condition called with no expression")
+
+		return builder
+	}
+	if builder.currentStep == "" {
+		builder.err = fmt.Errorf("Condition %q called with no step", name)
+
+		return builder
+	}
+
+	step := &StepDefinition{
+		Name:      name,
+		Condition: expr,
+		Type:      StepTypeCondition,
+		Next:      []string{},
+		Prev:      builder.currentStep,
+		Metadata:  make(map[string]any),
+	}
+
+	builder.steps[name] = step
+
+	if elseBranch != nil {
+		sub := &Builder{
+			name:    builder.name + "_branch_else",
+			version: builder.version,
+			steps:   make(map[string]*StepDefinition),
+		}
+
+		elseBranch(sub)
+
+		if sub.startStep == "" {
+			builder.err = fmt.Errorf("Condition %q: else branch has no steps", name)
+
+			return builder
+		}
+		if _, err := sub.Build(); err != nil {
+			builder.err = fmt.Errorf("invalid else branch for Condition %q: %w", name, err)
+
+			return builder
+		}
+
+		step.Else = sub.startStep
+		builder.steps[sub.startStep] = sub.steps[sub.startStep]
+		builder.steps[sub.startStep].Prev = name
+
+		for _, subStep := range sub.steps {
+			builder.steps[subStep.Name] = subStep
+		}
+
+		builder.subBuilders = append(builder.subBuilders, sub)
+	}
 
 	if builder.currentStep != "" && builder.currentStep != name {
 		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
@@ -459,7 +531,7 @@ func NewTask(name, handler string, opts ...StepOption) *StepDefinition {
 		Handler:    handler,
 		Type:       StepTypeTask,
 		Prev:       "", // NewTask doesn't have currentStep context
-		Metadata:   make(map[string]string),
+		Metadata:   make(map[string]any),
 		MaxRetries: defaultMaxRetries,
 	}
 

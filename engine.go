@@ -161,6 +161,7 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 
 	var output json.RawMessage
 	var stepErr error
+	next := true
 
 	switch stepDef.Type {
 	case StepTypeTask:
@@ -173,6 +174,8 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		output, stepErr = engine.executeFork(ctx, instance, step, stepDef)
 	case StepTypeSavePoint:
 		output = step.Input
+	case StepTypeCondition:
+		output, next, err = engine.executeCondition(ctx, instance, step, stepDef)
 	default:
 		stepErr = fmt.Errorf("unsupported step type: %s", stepDef.Type)
 	}
@@ -181,7 +184,7 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		return engine.handleStepFailure(ctx, instance, step, stepDef, stepErr)
 	}
 
-	return engine.handleStepSuccess(ctx, instance, step, stepDef, output)
+	return engine.handleStepSuccess(ctx, instance, step, stepDef, output, next)
 }
 
 func (engine *Engine) executeCompensationStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
@@ -213,13 +216,13 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 		return nil
 	}
 
-	variables := make(map[string]string, len(onFailureStep.Metadata)+1)
+	variables := make(map[string]any, len(onFailureStep.Metadata)+1)
 	for k, v := range onFailureStep.Metadata {
 		variables[k] = v
 	}
 	variables["reason"] = "compensation"
 
-	stepCtx := &executionContext{
+	stepCtx := executionContext{
 		instanceID: step.InstanceID,
 		stepName:   step.StepName,
 		retryCount: step.CompensationRetryCount,
@@ -227,7 +230,7 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 	}
 
 	// Execute the compensation handler
-	_, compensationErr := handler.Execute(ctx, stepCtx, step.Input)
+	_, compensationErr := handler.Execute(ctx, &stepCtx, step.Input)
 	if compensationErr != nil {
 		// Compensation failed, check if we can retry
 		if step.CompensationRetryCount < onFailureStep.MaxRetries {
@@ -435,12 +438,46 @@ func (engine *Engine) executeJoin(
 	return json.Marshal(results)
 }
 
+func (engine *Engine) executeCondition(
+	ctx context.Context,
+	instance *WorkflowInstance,
+	step *WorkflowStep,
+	stepDef *StepDefinition,
+) (json.RawMessage, bool, error) {
+	var inputData map[string]any
+	_ = json.Unmarshal(step.Input, &inputData)
+
+	stepCtx := executionContext{
+		instanceID: step.InstanceID,
+		stepName:   step.StepName,
+		variables:  inputData,
+	}
+
+	result, err := evaluateCondition(stepDef.Condition, &stepCtx)
+	if err != nil {
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventConditionCheck, map[string]any{
+			KeyStepName: step.StepName,
+			KeyError:    err.Error(),
+		})
+
+		return nil, false, fmt.Errorf("evaluate condition: %w", err)
+	}
+
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventConditionCheck, map[string]any{
+		KeyStepName: step.StepName,
+		KeyResult:   result,
+	})
+
+	return step.Input, result, nil
+}
+
 func (engine *Engine) handleStepSuccess(
 	ctx context.Context,
 	instance *WorkflowInstance,
 	step *WorkflowStep,
 	stepDef *StepDefinition,
 	output json.RawMessage,
+	next bool,
 ) error {
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusCompleted, output, nil); err != nil {
 		return fmt.Errorf("update step: %w", err)
@@ -454,7 +491,7 @@ func (engine *Engine) handleStepSuccess(
 		return fmt.Errorf("notify join steps: %w", err)
 	}
 
-	if len(stepDef.Next) == 0 {
+	if (next && len(stepDef.Next) == 0) || (!next && stepDef.Else == "") {
 		if !engine.hasUnfinishedSteps(ctx, instance.ID) {
 			return engine.completeWorkflow(ctx, instance, output)
 		}
@@ -467,17 +504,23 @@ func (engine *Engine) handleStepSuccess(
 		return fmt.Errorf("get workflow definition: %w", err)
 	}
 
-	for _, nextStepName := range stepDef.Next {
-		nextStepDef, ok := def.Definition.Steps[nextStepName]
-		if !ok {
-			return fmt.Errorf("next step definition not found: %s", nextStepName)
-		}
+	if next {
+		for _, nextStepName := range stepDef.Next {
+			nextStepDef, ok := def.Definition.Steps[nextStepName]
+			if !ok {
+				return fmt.Errorf("next step definition not found: %s", nextStepName)
+			}
 
-		if nextStepDef.Type == StepTypeJoin {
-			continue
-		}
+			if nextStepDef.Type == StepTypeJoin {
+				continue
+			}
 
-		if err := engine.enqueueNextSteps(ctx, instance.ID, []string{nextStepName}, output); err != nil {
+			if err := engine.enqueueNextSteps(ctx, instance.ID, []string{nextStepName}, output); err != nil {
+				return err
+			}
+		}
+	} else {
+		if err := engine.enqueueNextSteps(ctx, instance.ID, []string{stepDef.Else}, output); err != nil {
 			return err
 		}
 	}

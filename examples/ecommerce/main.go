@@ -129,7 +129,7 @@ func (h *NotificationHandler) Execute(ctx context.Context, stepCtx floxy.StepCon
 		order = data["order"].(map[string]any)
 	}
 
-	message, ok := stepCtx.GetVariable("message")
+	message, ok := stepCtx.GetVariableAsString("message")
 	if !ok {
 		message = "message not found"
 	}
@@ -205,14 +205,14 @@ func main() {
 		Step("process-payment", "payment", floxy.WithStepMaxRetries(3)).
 		OnFailure("send-payment-failure-notification", "notification",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"message": "Payment failed!",
 			})).
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(2)).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(2)).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"message": "Order shipped successfully!",
 			}),
 		).Build()
