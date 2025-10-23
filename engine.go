@@ -924,10 +924,34 @@ func (engine *Engine) rollbackStepChain(
 
 	// For parallel branches, traverse all subsequent steps in the chain
 	if isParallel {
-		// Traverse all next steps in the parallel branch first
-		for _, nextStepName := range stepDef.Next {
-			if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
-				return err
+		// For condition steps, we need to determine which branch was executed
+		if stepDef.Type == StepTypeCondition {
+			// Check if the condition step was executed and determine which branch was taken
+			if step, exists := stepMap[currentStep]; exists && step.Status == StepStatusCompleted {
+				// Determine which branch was executed by checking which subsequent steps exist
+				executedBranch := engine.determineExecutedBranch(stepDef, stepMap)
+
+				if executedBranch == "next" {
+					// Rollback the Next branch
+					for _, nextStepName := range stepDef.Next {
+						if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
+							return err
+						}
+					}
+				} else if executedBranch == "else" && stepDef.Else != "" {
+					// Rollback the Else branch
+					if err := engine.rollbackStepChain(ctx, stepDef.Else, savePointName, def, stepMap, true); err != nil {
+						return err
+					}
+				}
+				// If no branch was executed, skip rollback for this condition step
+			}
+		} else {
+			// For non-condition steps, traverse all next steps
+			for _, nextStepName := range stepDef.Next {
+				if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1000,4 +1024,32 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	})
 
 	return nil
+}
+
+func (engine *Engine) determineExecutedBranch(
+	stepDef *StepDefinition,
+	stepMap map[string]*WorkflowStep,
+) string {
+	// Check if any steps from the Next branch were executed
+	for _, nextStepName := range stepDef.Next {
+		if step, exists := stepMap[nextStepName]; exists &&
+			(step.Status == StepStatusCompleted ||
+				step.Status == StepStatusFailed ||
+				step.Status == StepStatusCompensation) {
+			return "next"
+		}
+	}
+
+	// Check if any steps from the Else branch were executed
+	if stepDef.Else != "" {
+		if step, exists := stepMap[stepDef.Else]; exists &&
+			(step.Status == StepStatusCompleted ||
+				step.Status == StepStatusFailed ||
+				step.Status == StepStatusCompensation) {
+			return "else"
+		}
+	}
+
+	// If no branch was executed, return an empty string
+	return ""
 }
