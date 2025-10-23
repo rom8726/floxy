@@ -72,15 +72,17 @@ FROM workflows.workflow_stats`
 }
 
 type ActiveWorkflow struct {
-	InstanceID     int64          `json:"instance_id"`
-	WorkflowID     string         `json:"workflow_id"`
-	Status         WorkflowStatus `json:"status"`
-	CreatedAt      time.Time      `json:"created_at"`
-	Duration       time.Duration  `json:"duration"`
-	TotalSteps     int            `json:"total_steps"`
-	CompletedSteps int            `json:"completed_steps"`
-	FailedSteps    int            `json:"failed_steps"`
-	RunningSteps   int            `json:"running_steps"`
+	InstanceID        int64          `json:"instance_id"`
+	WorkflowID        string         `json:"workflow_id"`
+	Status            WorkflowStatus `json:"status"`
+	CreatedAt         time.Time      `json:"created_at"`
+	Duration          time.Duration  `json:"duration"`
+	TotalSteps        int            `json:"total_steps"`
+	CompletedSteps    int            `json:"completed_steps"`
+	FailedSteps       int            `json:"failed_steps"`
+	RunningSteps      int            `json:"running_steps"`
+	CompensationSteps int            `json:"compensation_steps"`
+	RolledBackSteps   int            `json:"rolled_back_steps"`
 }
 
 func (m *Monitor) GetActiveWorkflows(ctx context.Context) ([]ActiveWorkflow, error) {
@@ -94,7 +96,9 @@ SELECT
 	total_steps,
 	completed_steps,
 	failed_steps,
-	running_steps
+	running_steps,
+	compensation_steps,
+	rolled_back_steps
 FROM workflows.active_workflows`
 
 	rows, err := m.pool.Query(ctx, query)
@@ -118,6 +122,8 @@ FROM workflows.active_workflows`
 			&wf.CompletedSteps,
 			&wf.FailedSteps,
 			&wf.RunningSteps,
+			&wf.CompensationSteps,
+			&wf.RolledBackSteps,
 		)
 		if err != nil {
 			return nil, err
