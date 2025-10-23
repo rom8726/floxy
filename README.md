@@ -19,6 +19,8 @@ PlantUML diagrams of compensations flow: [DIAGRAMS](docs/SAGA_COMPENSATION_DIAGR
 
 Engine specification: [ENGINE](docs/ENGINE_SPEC.md)
 
+> Warning: This engine is ideal for pet projects, but has not been tested in production. Using this in production, you act at your own risk.
+
 ## Quick Start
 
 ```go
@@ -202,6 +204,7 @@ if err := floxy.RunMigrations(ctx, pool); err != nil {
 Available migrations:
 - `001_initial.up.sql`: Initial schema creation
 - `002_add_savepoint_and_rollback.up.sql`: SavePoint and rollback support
+- `003_add_compensation_retry_count.up.sql`: compensation step status and compensation_retry_count added
 
 ## Installation
 
