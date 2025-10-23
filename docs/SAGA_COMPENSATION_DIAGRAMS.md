@@ -7,7 +7,7 @@ This document contains PlantUML diagrams describing the saga compensation mechan
 Shows the step-by-step execution of the compensation process:
 
 <div align="center">
-  <img src="docs/saga_seq.png" alt="Saga Compensation Sequence"/>
+  <img src="saga_seq.png" alt="Saga Compensation Sequence"/>
 </div>
 
 ## State Diagram
@@ -15,7 +15,7 @@ Shows the step-by-step execution of the compensation process:
 Shows the transitions between step states:
 
 <div align="center">
-  <img src="docs/saga_state.png" alt="Saga Compensation State Machine"/>
+  <img src="saga_state.png" alt="Saga Compensation State Machine"/>
 </div>
 
 ## Architecture Diagram
@@ -23,7 +23,7 @@ Shows the transitions between step states:
 Shows system components and their interactions:
 
 <div align="center">
-  <img src="docs/saga_components.png" alt="Saga Compensation Architecture"/>
+  <img src="saga_components.png" alt="Saga Compensation Architecture"/>
 </div>
 
 ## Key Features
