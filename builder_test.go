@@ -162,4 +162,18 @@ func TestWorkflowBuilder(t *testing.T) {
 		assert.Equal(t, StepTypeJoin, wf.Definition.Steps["join"].Type)
 		assert.Contains(t, wf.Definition.Steps, "p1")
 	})
+
+	t.Run("error: empty step name", func(t *testing.T) {
+		_, err := NewBuilder("empty-step", 1).
+			Step("", "handler").Build()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at least one step is required")
+	})
+
+	t.Run("error: _root_ step name", func(t *testing.T) {
+		_, err := NewBuilder("_root_", 1).
+			Step("_root_", "handler").Build()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "step name cannot be _root_")
+	})
 }

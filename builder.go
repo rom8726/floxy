@@ -9,7 +9,7 @@ import (
 const (
 	defaultMaxRetries = 3
 
-	rootStep = "_root_"
+	rootStepName = "_root_"
 )
 
 type Builder struct {
@@ -69,7 +69,7 @@ func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder 
 
 	if builder.startStep == "" {
 		builder.startStep = name
-		step.Prev = rootStep
+		step.Prev = rootStepName
 	}
 
 	if builder.currentStep != "" && builder.currentStep != name {
@@ -189,7 +189,7 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 
 	if builder.startStep == "" {
 		builder.startStep = name
-		forkStep.Prev = rootStep
+		forkStep.Prev = rootStepName
 	}
 
 	if builder.currentStep != "" && builder.currentStep != name {
@@ -368,6 +368,10 @@ func (builder *Builder) Build() (*WorkflowDefinition, error) {
 
 func (builder *Builder) validate(def *WorkflowDefinition) error {
 	for stepName, stepDef := range def.Definition.Steps {
+		if err := validateStepName(stepName); err != nil {
+			return fmt.Errorf("builder %q: %w", builder.name, err)
+		}
+
 		for _, nextStep := range stepDef.Next {
 			if _, ok := def.Definition.Steps[nextStep]; !ok {
 				return fmt.Errorf("builder %q: step %q references unknown step: %q",
@@ -464,4 +468,15 @@ func NewTask(name, handler string, opts ...StepOption) *StepDefinition {
 	}
 
 	return step
+}
+
+func validateStepName(name string) error {
+	if name == "" {
+		return errors.New("step name is required")
+	}
+	if name == rootStepName {
+		return errors.New("step name cannot be _root_")
+	}
+
+	return nil
 }

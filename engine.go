@@ -827,7 +827,7 @@ func (engine *Engine) findNearestSavePoint(stepName string, def *WorkflowDefinit
 		stepName = stepDef.Prev
 	}
 
-	return rootStep
+	return rootStepName
 }
 
 func (engine *Engine) rollbackStepsToSavePoint(
