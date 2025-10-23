@@ -3,14 +3,16 @@ package floxy
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Monitor struct {
-	store *StoreImpl
+	pool *pgxpool.Pool
 }
 
-func NewMonitor(store *StoreImpl) *Monitor {
-	return &Monitor{store: store}
+func NewMonitor(pool *pgxpool.Pool) *Monitor {
+	return &Monitor{pool: pool}
 }
 
 type WorkflowStats struct {
@@ -35,7 +37,7 @@ SELECT
 	avg_duration_seconds
 FROM workflows.workflow_stats`
 
-	rows, err := m.store.db.Query(ctx, query)
+	rows, err := m.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +97,7 @@ SELECT
 	running_steps
 FROM workflows.active_workflows`
 
-	rows, err := m.store.db.Query(ctx, query)
+	rows, err := m.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -132,24 +134,24 @@ func (m *Monitor) GetQueueLength(ctx context.Context) (int, error) {
 	const query = `SELECT COUNT(*) FROM workflows.workflow_queue WHERE attempted_at IS NULL`
 
 	var count int
-	err := m.store.db.QueryRow(ctx, query).Scan(&count)
+	err := m.pool.QueryRow(ctx, query).Scan(&count)
 
 	return count, err
 }
 
 type CleanupService struct {
-	store *StoreImpl
+	pool *pgxpool.Pool
 }
 
-func NewCleanupService(store *StoreImpl) *CleanupService {
-	return &CleanupService{store: store}
+func NewCleanupService(pool *pgxpool.Pool) *CleanupService {
+	return &CleanupService{pool: pool}
 }
 
 func (c *CleanupService) CleanupOldWorkflows(ctx context.Context, olderThan time.Duration) (int64, error) {
-	const query = `SELECT FROM workflows.cleanup_workflows($1)`
+	const query = `SELECT FROM workflows.cleanup_old_workflows($1)`
 
 	cutoffTime := time.Now().Add(-olderThan)
-	result, err := c.store.db.Exec(ctx, query, cutoffTime)
+	result, err := c.pool.Exec(ctx, query, cutoffTime)
 	if err != nil {
 		return 0, err
 	}
