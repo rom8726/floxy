@@ -12,6 +12,7 @@ floxy means "flow" + "flux" + "tiny".
 - **Parallel Execution**: Fork/Join patterns for concurrent workflow steps
 - **Error Handling**: Automatic retry mechanisms and failure compensation
 - **SavePoints**: Rollback to specific points in workflow execution
+- **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps.
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 
