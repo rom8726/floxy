@@ -186,7 +186,7 @@ func main() {
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(1)).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(1)).
 		OnFailure("ship-order-failure", "compensation",
-			floxy.WithStepMaxRetries(0), floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMaxRetries(1), floxy.WithStepMetadata(map[string]string{
 				"action": "return",
 			}),
 		).
