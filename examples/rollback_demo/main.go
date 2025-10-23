@@ -98,7 +98,7 @@ func (h *NotificationHandler) Name() string {
 }
 
 func (h *NotificationHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, input json.RawMessage) (json.RawMessage, error) {
-	message, _ := stepCtx.GetVariable("message")
+	message, _ := stepCtx.GetVariableAsString("message")
 	fmt.Printf("Sending notification: %s\n", message)
 
 	// Simulate notification
@@ -117,8 +117,8 @@ func (h *CompensationHandler) Name() string {
 }
 
 func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, input json.RawMessage) (json.RawMessage, error) {
-	action, _ := stepCtx.GetVariable("action")
-	reason, _ := stepCtx.GetVariable("reason")
+	action, _ := stepCtx.GetVariableAsString("action")
+	reason, _ := stepCtx.GetVariableAsString("reason")
 
 	fmt.Printf("Executing compensation: %s (reason: %s)\n", action, reason)
 
@@ -166,32 +166,32 @@ func main() {
 		Step("process-payment", "payment", floxy.WithStepMaxRetries(2)).
 		OnFailure("refund-payment", "compensation",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"action": "refund",
 				"reason": "payment_failed",
 			})).
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(1)).
 		OnFailure("release-inventory", "compensation",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"action": "release",
 				"reason": "inventory_failed",
 			})).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(1)).
 		OnFailure("cancel-shipment", "compensation",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"action": "cancel",
 				"reason": "shipping_failed",
 			})).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"message": "Order processed successfully!",
 			})).
 		OnFailure("send-failure-notification", "notification",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"message": "Order processing failed!",
 			})).
 		Build()

@@ -14,6 +14,7 @@ const (
 	EventJoinCompleted     = "join_completed"
 	EventJoinUpdated       = "join_updated"
 	EventJoinReady         = "join_ready"
+	EventConditionCheck    = "condition_check"
 
 	// Event data keys
 	KeyWorkflowID    = "workflow_id"
@@ -33,4 +34,5 @@ const (
 	KeyCompletedStep = "completed_step"
 	KeySuccess       = "success"
 	KeyReason        = "reason"
+	KeyResult        = "result"
 )

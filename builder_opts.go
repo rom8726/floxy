@@ -18,7 +18,7 @@ func WithStepMaxRetries(maxRetries int) StepOption {
 	}
 }
 
-func WithStepMetadata(metadata map[string]string) StepOption {
+func WithStepMetadata(metadata map[string]any) StepOption {
 	return func(step *StepDefinition) {
 		step.Metadata = metadata
 	}

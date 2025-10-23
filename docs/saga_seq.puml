@@ -49,26 +49,39 @@ else Step Failure
 
         E -> E: rollbackStep()
 
-        alt Has OnFailure handler
-            E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
-            S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
-            DB --> S: OK
-            S --> E: OK
+        alt Step is Condition in Parallel Flow
+            E -> E: determineExecutedBranch(conditionStep, stepDef, stepMap)
+            note right: Check which branch (Next/Else) was actually executed
+            
+            alt Next branch was executed
+                loop For each step in Next branch
+                    E -> E: rollbackStepChain(nextStep, ...)
+                end
+            else Else branch was executed
+                E -> E: rollbackStepChain(elseStep, ...)
+            end
+        else Regular step
+            alt Has OnFailure handler
+                E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
+                S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
+                DB --> S: OK
+                S --> E: OK
 
-            E -> S: EnqueueStep(stepID)
-            S -> DB: INSERT INTO workflow_queue
-            DB --> S: OK
-            S --> E: OK
+                E -> S: EnqueueStep(stepID)
+                S -> DB: INSERT INTO workflow_queue
+                DB --> S: OK
+                S --> E: OK
 
-            E -> S: LogEvent(compensation_started)
-            S -> DB: INSERT INTO workflow_events
-            DB --> S: OK
-            S --> E: OK
-        else No OnFailure handler
-            E -> S: UpdateStep(status=rolled_back)
-            S -> DB: UPDATE workflow_steps SET status='rolled_back'
-            DB --> S: OK
-            S --> E: OK
+                E -> S: LogEvent(compensation_started)
+                S -> DB: INSERT INTO workflow_events
+                DB --> S: OK
+                S --> E: OK
+            else No OnFailure handler
+                E -> S: UpdateStep(status=rolled_back)
+                S -> DB: UPDATE workflow_steps SET status='rolled_back'
+                DB --> S: OK
+                S --> E: OK
+            end
         end
     end
 
@@ -136,6 +149,46 @@ else Compensation Failure
         S -> DB: INSERT INTO workflow_events
         DB --> S: OK
         S --> E: OK
+    end
+end
+
+== Condition Step Execution ==
+note over E: Special handling for condition steps
+
+E -> E: executeCondition(stepCtx, stepDef)
+E -> E: evaluateCondition(expr, stepCtx)
+note right: Uses Go template with functions:\neq, ne, gt, lt, ge, le
+
+alt Condition is True
+    E -> E: enqueueNextSteps(stepDef.Next)
+    note right: Execute Next branch steps
+else Condition is False
+    E -> E: enqueueNextSteps(stepDef.Else)
+    note right: Execute Else branch steps
+end
+
+== Parallel Flow Rollback with Conditions ==
+note over E: When rolling back parallel flows with condition steps
+
+E -> E: rollbackStepChain(parallelStep, ...)
+
+loop For each parallel branch
+    E -> E: Check if branch contains condition steps
+    
+    alt Branch has condition step
+        E -> E: determineExecutedBranch(conditionStep, stepDef, stepMap)
+        note right: Check stepMap to see which branch was executed
+        
+        alt Next branch was executed
+            E -> E: rollbackStepChain(nextStep, ...)
+            note right: Rollback only Next branch steps
+        else Else branch was executed
+            E -> E: rollbackStepChain(elseStep, ...)
+            note right: Rollback only Else branch steps
+        end
+    else Branch has no condition step
+        E -> E: rollbackStepChain(regularStep, ...)
+        note right: Standard rollback for regular steps
     end
 end
 

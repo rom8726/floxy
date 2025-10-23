@@ -1,6 +1,7 @@
 package floxy
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -10,7 +11,7 @@ type executionContext struct {
 	instanceID int64
 	stepName   string
 	retryCount int
-	variables  map[string]string
+	variables  map[string]any
 	mu         sync.RWMutex
 }
 
@@ -26,7 +27,16 @@ func (c *executionContext) RetryCount() int {
 	return c.retryCount
 }
 
-func (c *executionContext) GetVariable(key string) (string, bool) {
+func (c *executionContext) CloneData() map[string]any {
+	result := make(map[string]any, len(c.variables))
+	for k, v := range c.variables {
+		result[k] = v
+	}
+
+	return result
+}
+
+func (c *executionContext) GetVariable(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	val, ok := c.variables[key]
@@ -34,8 +44,11 @@ func (c *executionContext) GetVariable(key string) (string, bool) {
 	return val, ok
 }
 
-//func (c *executionContext) SetVariable(key string, value string) {
-//	c.mu.Lock()
-//	defer c.mu.Unlock()
-//	c.variables[key] = value
-//}
+func (c *executionContext) GetVariableAsString(key string) (string, bool) {
+	val, ok := c.GetVariable(key)
+	if !ok {
+		return "", false
+	}
+
+	return fmt.Sprint(val), true
+}

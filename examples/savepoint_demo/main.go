@@ -116,7 +116,7 @@ func (h *NotificationHandler) Name() string {
 }
 
 func (h *NotificationHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, input json.RawMessage) (json.RawMessage, error) {
-	message, _ := stepCtx.GetVariable("message")
+	message, _ := stepCtx.GetVariableAsString("message")
 	fmt.Printf("Sending notification: %s\n", message)
 
 	// Simulate notification
@@ -135,8 +135,8 @@ func (h *CompensationHandler) Name() string {
 }
 
 func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, input json.RawMessage) (json.RawMessage, error) {
-	action, _ := stepCtx.GetVariable("action")
-	reason, _ := stepCtx.GetVariable("reason")
+	action, _ := stepCtx.GetVariableAsString("action")
+	reason, _ := stepCtx.GetVariableAsString("reason")
 
 	fmt.Printf("Executing compensation: %s (reason: %s)\n", action, reason)
 
@@ -186,13 +186,13 @@ func main() {
 		Then("reserve-inventory", "inventory", floxy.WithStepMaxRetries(1)).
 		Then("ship-order", "shipping", floxy.WithStepMaxRetries(1)).
 		OnFailure("ship-order-failure", "compensation",
-			floxy.WithStepMaxRetries(1), floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMaxRetries(1), floxy.WithStepMetadata(map[string]any{
 				"action": "return",
 			}),
 		).
 		Then("send-success-notification", "notification",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"message": "Order processed successfully!",
 			})).
 		Build()

@@ -62,6 +62,12 @@ func (v *Visualizer) renderStep(
 		output += v.renderStep(steps, next, indent+1, visited)
 	}
 
+	// Render Else branch for condition steps
+	if step.Else != "" {
+		output += fmt.Sprintf("%s  ↳ else: %s\n", v.indent(indent), step.Else)
+		output += v.renderStep(steps, step.Else, indent+2, visited)
+	}
+
 	return output
 }
 

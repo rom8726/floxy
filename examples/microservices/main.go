@@ -156,7 +156,7 @@ func (h *NotificationServiceHandler) Execute(ctx context.Context, stepCtx floxy.
 	}
 
 	// Get message from metadata or use default
-	message, ok := stepCtx.GetVariable("message")
+	message, ok := stepCtx.GetVariableAsString("message")
 	if !ok {
 		message = "Order processing completed"
 	}
@@ -304,11 +304,11 @@ func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepCon
 	}
 
 	// Get action and reason from metadata
-	action, ok := stepCtx.GetVariable("action")
+	action, ok := stepCtx.GetVariableAsString("action")
 	if !ok {
 		action = "unknown_action"
 	}
-	reason, ok := stepCtx.GetVariable("reason")
+	reason, ok := stepCtx.GetVariableAsString("reason")
 	if !ok {
 		reason = "unknown_reason"
 	}
@@ -355,7 +355,7 @@ func main() {
 		Step("validate-user", "user-service", floxy.WithStepMaxRetries(3)).
 		OnFailure("compensate-user-validation", "compensation",
 			floxy.WithStepMaxRetries(1),
-			floxy.WithStepMetadata(map[string]string{
+			floxy.WithStepMetadata(map[string]any{
 				"action": "user_validation_failed",
 				"reason": "user_validation_error",
 			})).
