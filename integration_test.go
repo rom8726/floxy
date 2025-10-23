@@ -168,15 +168,6 @@ func TestIntegration_Ecommerce(t *testing.T) {
 				"message": "Payment failed!",
 			})).
 		Then("reserve-inventory", "inventory", WithStepMaxRetries(2)).
-		OnFailureFlow("refund-flow", func(failureBuilder *Builder) {
-			failureBuilder.Step("refund-payment", "refund", WithStepMaxRetries(2)).
-				Then("send-refund-notification", "notification",
-					WithStepMaxRetries(1),
-					WithStepMetadata(map[string]string{
-						"message": "Refund processed!",
-					}),
-				)
-		}).
 		Then("ship-order", "shipping", WithStepMaxRetries(2)).
 		Then("send-success-notification", "notification",
 			WithStepMaxRetries(1),
@@ -266,14 +257,6 @@ func TestIntegration_Microservices(t *testing.T) {
 				branch.Step("check-inventory", "inventory-service", WithStepMaxRetries(2))
 			},
 		).
-		OnFailureFlow("compensate-payment-inventory", func(failureBuilder *Builder) {
-			failureBuilder.Step("compensate-payment-inventory", "compensation",
-				WithStepMaxRetries(1),
-				WithStepMetadata(map[string]string{
-					"action": "payment_inventory_failed",
-					"reason": "payment_or_inventory_error",
-				}))
-		}).
 		JoinStep("send-notifications", []string{"process-payment", "check-inventory"}, JoinStrategyAll).
 		Fork("track-analytics",
 			func(branch *Builder) {

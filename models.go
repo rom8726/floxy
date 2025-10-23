@@ -18,12 +18,13 @@ const (
 type StepStatus string
 
 const (
-	StepStatusPending    StepStatus = "pending"
-	StepStatusRunning    StepStatus = "running"
-	StepStatusCompleted  StepStatus = "completed"
-	StepStatusFailed     StepStatus = "failed"
-	StepStatusSkipped    StepStatus = "skipped"
-	StepStatusRolledBack StepStatus = "rolled_back"
+	StepStatusPending      StepStatus = "pending"
+	StepStatusRunning      StepStatus = "running"
+	StepStatusCompleted    StepStatus = "completed"
+	StepStatusFailed       StepStatus = "failed"
+	StepStatusSkipped      StepStatus = "skipped"
+	StepStatusCompensation StepStatus = "compensation"
+	StepStatusRolledBack   StepStatus = "rolled_back"
 )
 
 type StepType string
@@ -87,19 +88,20 @@ type WorkflowInstance struct {
 }
 
 type WorkflowStep struct {
-	ID          int64           `json:"id"`
-	InstanceID  int64           `json:"instance_id"`
-	StepName    string          `json:"step_name"`
-	StepType    StepType        `json:"step_type"`
-	Status      StepStatus      `json:"status"`
-	Input       json.RawMessage `json:"input"`
-	Output      json.RawMessage `json:"output"`
-	Error       *string         `json:"error"`
-	RetryCount  int             `json:"retry_count"`
-	MaxRetries  int             `json:"max_retries"`
-	StartedAt   *time.Time      `json:"started_at"`
-	CompletedAt *time.Time      `json:"completed_at"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID                     int64           `json:"id"`
+	InstanceID             int64           `json:"instance_id"`
+	StepName               string          `json:"step_name"`
+	StepType               StepType        `json:"step_type"`
+	Status                 StepStatus      `json:"status"`
+	Input                  json.RawMessage `json:"input"`
+	Output                 json.RawMessage `json:"output"`
+	Error                  *string         `json:"error"`
+	RetryCount             int             `json:"retry_count"`
+	MaxRetries             int             `json:"max_retries"`
+	CompensationRetryCount int             `json:"compensation_retry_count"`
+	StartedAt              *time.Time      `json:"started_at"`
+	CompletedAt            *time.Time      `json:"completed_at"`
+	CreatedAt              time.Time       `json:"created_at"`
 }
 
 type QueueItem struct {

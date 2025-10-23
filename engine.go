@@ -125,6 +125,11 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 		}
 
+		// Check if this is a compensation
+		if step.Status == StepStatusCompensation {
+			return engine.executeCompensationStep(ctx, instance, step)
+		}
+
 		return engine.executeStep(ctx, instance, step)
 	})
 	if err != nil {
@@ -177,6 +182,105 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	}
 
 	return engine.handleStepSuccess(ctx, instance, step, stepDef, output)
+}
+
+func (engine *Engine) executeCompensationStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow definition: %w", err)
+	}
+
+	stepDef, ok := def.Definition.Steps[step.StepName]
+	if !ok {
+		return fmt.Errorf("step definition not found: %s", step.StepName)
+	}
+
+	onFailureStep, ok := def.Definition.Steps[stepDef.OnFailure]
+	if !ok {
+		// No compensation handler, mark as rolled back
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+			return fmt.Errorf("update step status: %w", err)
+		}
+		return nil
+	}
+
+	handler, exists := engine.handlers[onFailureStep.Handler]
+	if !exists {
+		// Handler not found, mark as rolled back
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+			return fmt.Errorf("update step status: %w", err)
+		}
+		return nil
+	}
+
+	variables := make(map[string]string, len(onFailureStep.Metadata)+1)
+	for k, v := range onFailureStep.Metadata {
+		variables[k] = v
+	}
+	variables["reason"] = "compensation"
+
+	stepCtx := &executionContext{
+		instanceID: step.InstanceID,
+		stepName:   step.StepName,
+		retryCount: step.CompensationRetryCount,
+		variables:  variables,
+	}
+
+	// Execute the compensation handler
+	_, compensationErr := handler.Execute(ctx, stepCtx, step.Input)
+	if compensationErr != nil {
+		// Compensation failed, check if we can retry
+		if step.CompensationRetryCount < onFailureStep.MaxRetries {
+			// Retry compensation
+			newRetryCount := step.CompensationRetryCount + 1
+			if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, newRetryCount, StepStatusCompensation); err != nil {
+				return fmt.Errorf("update compensation retry: %w", err)
+			}
+
+			// Re-enqueue for retry
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+				return fmt.Errorf("enqueue compensation retry: %w", err)
+			}
+
+			_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
+				KeyStepName:   step.StepName,
+				KeyStepType:   step.StepType,
+				KeyError:      compensationErr.Error(),
+				KeyRetryCount: newRetryCount,
+				KeyReason:     "compensation_retry",
+			})
+
+			return nil
+		} else {
+			// Max retries exceeded, mark as failed
+			errorMsg := compensationErr.Error()
+			if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, step.Input, &errorMsg); err != nil {
+				return fmt.Errorf("update step status: %w", err)
+			}
+
+			_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
+				KeyStepName: step.StepName,
+				KeyStepType: step.StepType,
+				KeyError:    "compensation max retries exceeded",
+			})
+
+			return nil
+		}
+	}
+
+	// Compensation successful, mark as rolled back
+	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+		return fmt.Errorf("update step status: %w", err)
+	}
+
+	_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepCompleted, map[string]any{
+		KeyStepName:   step.StepName,
+		KeyStepType:   step.StepType,
+		KeyRetryCount: step.CompensationRetryCount,
+		KeyReason:     "compensation_success",
+	})
+
+	return nil
 }
 
 func (engine *Engine) executeTask(
@@ -811,42 +915,45 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 
 	onFailureStep, ok := def.Definition.Steps[stepDef.OnFailure]
 	if !ok {
+		// No compensation handler, mark as rolled back directly
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+			return fmt.Errorf("update step status: %w", err)
+		}
+
 		return nil
 	}
 
-	handler, exists := engine.handlers[onFailureStep.Handler]
-	if !exists {
+	// Check if we need to retry compensation
+	if step.CompensationRetryCount >= onFailureStep.MaxRetries {
+		// Max compensation retries exceeded, mark as failed
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, step.Input, nil); err != nil {
+			return fmt.Errorf("update step status: %w", err)
+		}
+		_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName: step.StepName,
+			KeyStepType: step.StepType,
+			KeyError:    "compensation max retries exceeded",
+		})
+
 		return nil
 	}
 
-	variables := make(map[string]string, len(onFailureStep.Metadata)+1)
-	for k, v := range onFailureStep.Metadata {
-		variables[k] = v
-	}
-	variables["reason"] = "error"
-
-	stepCtx := &executionContext{
-		instanceID: step.InstanceID,
-		stepName:   step.StepName,
-		retryCount: step.RetryCount,
-		variables:  variables,
+	// Increment compensation retry count and update status to compensation
+	newRetryCount := step.CompensationRetryCount + 1
+	if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, newRetryCount, StepStatusCompensation); err != nil {
+		return fmt.Errorf("update step compensation retry: %w", err)
 	}
 
-	// Execute the handler in compensation mode
-	_, err := handler.Execute(ctx, stepCtx, step.Input)
-	if err != nil {
-		return fmt.Errorf("execute compensation for step %q: %w", step.StepName, err)
+	// Enqueue compensation step for execution
+	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
 
-	// Update step status to rolled back
-	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
-		return fmt.Errorf("update step status: %w", err)
-	}
-
-	_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
-		KeyStepName: step.StepName,
-		KeyStepType: step.StepType,
-		KeyError:    "step rolled back",
+	_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepStarted, map[string]any{
+		KeyStepName:   step.StepName,
+		KeyStepType:   step.StepType,
+		KeyRetryCount: newRetryCount,
+		KeyReason:     "compensation",
 	})
 
 	return nil

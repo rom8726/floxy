@@ -15,6 +15,8 @@ floxy means "flow" + "flux" + "tiny".
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 
+PlantUML diagrams of compensations flow: [DIAGRAMS](SAGA_COMPENSATION_DIAGRAMS.md)
+
 ## Quick Start
 
 ```go

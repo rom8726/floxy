@@ -417,6 +417,23 @@ func (store *StoreImpl) checkJoinReady(waitingFor, completed, failed []string, s
 	return totalProcessed >= len(waitingFor)
 }
 
+func (store *StoreImpl) UpdateStepCompensationRetry(
+	ctx context.Context,
+	stepID int64,
+	retryCount int,
+	status StepStatus,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+UPDATE workflows.workflow_steps 
+SET compensation_retry_count = $1, status = $2
+WHERE id = $3`
+
+	_, err := executor.Exec(ctx, query, retryCount, string(status), stepID)
+	return err
+}
+
 func (store *StoreImpl) getExecutor(ctx context.Context) Tx {
 	if tx := TxFromContext(ctx); tx != nil {
 		return tx
