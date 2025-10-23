@@ -12,6 +12,8 @@ Key features:
 * Configurable retry and compensation policies.
 * Support for non-idempotent steps.
 * Partial rollback via **Save Points**.
+* **Conditional branching** with `Condition` steps.
+* **Smart rollback** for parallel flows with condition steps.
 * Unified runtime for both normal and compensation execution.
 
 ---
@@ -34,13 +36,17 @@ Each step is represented by a `StepDefinition`:
 | Field          | Description                                                          |
 | -------------- | -------------------------------------------------------------------- |
 | `Name`         | Unique step name.                                                    |
-| `Type`         | Step type (`task`, `parallel`, `fork`, `join`, `save_point`).        |
+| `Type`         | Step type (`task`, `parallel`, `fork`, `join`, `save_point`, `condition`). |
 | `Handler`      | Handler function to execute.                                         |
 | `OnFailure`    | Optional name of a compensation step.                                |
 | `MaxRetries`   | Maximum total number of allowed handler calls (including the first). |
 | `NoIdempotent` | Marks step as non-idempotent. Default is `false`.                    |
 | `Next`         | List of next step names (normal flow).                               |
+| `Else`         | Alternative step name for condition steps (false branch).            |
+| `Condition`    | Go template expression for condition evaluation.                     |
 | `Parallel`     | List of sub-steps for `parallel` or `fork` types.                    |
+| `WaitFor`      | List of steps to wait for in join operations.                       |
+| `JoinStrategy` | Join strategy (`all` or `any`).                                     |
 | `Metadata`     | Arbitrary user metadata.                                             |
 
 ---
@@ -139,12 +145,36 @@ On workflow failure, the engine computes the **rollback chain**:
 
 1. Find the nearest `save_point` (if any).
 2. Collect all executed steps up to that point.
-3. For each:
+3. For each step:
 
-    * If `OnFailure` exists → execute compensation.
-    * Otherwise → mark as `rolled_back`.
+    * **Condition steps in parallel flows**: Determine which branch was executed and rollback only that branch.
+    * **Regular steps**: If `OnFailure` exists → execute compensation, otherwise → mark as `rolled_back`.
 
-### 5.3 Save Points
+### 5.3 Condition Step Rollback
+
+For condition steps in parallel flows, the engine uses **smart rollback**:
+
+1. **Branch Detection**: Check which branch (Next or Else) was actually executed by examining the step map.
+2. **Selective Rollback**: Only rollback steps from the executed branch.
+3. **Context Preservation**: Maintain the same rollback context for compensation steps.
+
+```go
+// Example: Parallel flow with condition
+Fork("parallel_branch", func(branch1 *Builder) {
+    branch1.Condition("check_condition", "{{ gt .count 5 }}", func(elseBranch *Builder) {
+        elseBranch.Step("else_action", "ElseHandler")
+    }).Then("next_action", "NextHandler")
+}, func(branch2 *Builder) {
+    branch2.Step("other_action", "OtherHandler")
+})
+```
+
+If `next_action` fails, the engine will:
+- Detect that the "Next" branch was executed (not "Else")
+- Rollback only `next_action` and `check_condition`
+- Skip `else_action` since it was never executed
+
+### 5.4 Save Points
 
 A `StepTypeSavePoint` marks a rollback boundary:
 
@@ -213,7 +243,59 @@ All subtasks must complete before continuing.
 
 ---
 
-## 8. State Determinism
+## 8. Condition Steps
+
+### 8.1 Overview
+
+`StepTypeCondition` enables conditional branching based on runtime data. The condition is evaluated using Go template syntax with built-in comparison functions.
+
+### 8.2 Condition Expression
+
+Conditions use Go templates with the following functions:
+
+| Function | Description                    | Example                    |
+|----------|--------------------------------|----------------------------|
+| `eq`     | Equality comparison            | `{{ eq .count 5 }}`        |
+| `ne`     | Inequality comparison          | `{{ ne .status "active" }}`|
+| `gt`     | Greater than (numeric)         | `{{ gt .amount 100 }}`     |
+| `lt`     | Less than (numeric)            | `{{ lt .price 50 }}`       |
+| `ge`     | Greater than or equal          | `{{ ge .age 18 }}`         |
+| `le`     | Less than or equal             | `{{ le .count 10 }}`       |
+
+### 8.3 Condition Step Definition
+
+```go
+builder.Condition("check_funds", "{{ gt .balance 100 }}", func(elseBranch *Builder) {
+    elseBranch.Step("insufficient_funds", "HandleInsufficientFunds")
+}).
+Then("process_payment", "ProcessPayment")
+```
+
+### 8.4 Execution Flow
+
+1. **Condition Evaluation**: The engine evaluates the condition expression against the current step context.
+2. **Branch Selection**: 
+   - If `true` → execute `Next` steps
+   - If `false` → execute `Else` step (if defined)
+3. **Context Passing**: The same input context is passed to the selected branch.
+
+### 8.5 Data Access
+
+Conditions can access:
+- **Input data**: `{{ .field_name }}`
+- **Nested objects**: `{{ .user.age }}`
+- **Step context**: `{{ .instance_id }}`, `{{ .step_name }}`
+
+### 8.6 Type Safety
+
+The engine automatically handles type conversions for numeric comparisons:
+- `int`, `int64`, `float32`, `float64` are all supported
+- String comparisons use exact matching
+- Missing fields default to `0` for numeric operations
+
+---
+
+## 9. State Determinism
 
 Floxy ensures deterministic workflow execution:
 
@@ -238,6 +320,8 @@ Floxy ensures deterministic workflow execution:
 
 ## 10. Example Saga Flow
 
+### 10.1 Basic Saga
+
 ```go
 wf := NewBuilder("order_saga", 1).
     Step("reserve_funds", "ReserveFunds").
@@ -259,6 +343,35 @@ Execution sequence:
     * Mark both as `rolled_back`
     * Instance → `failed`
 
+### 10.2 Saga with Condition Steps
+
+```go
+wf := NewBuilder("smart_order_saga", 1).
+    Step("validate_order", "ValidateOrder").
+    Condition("check_inventory", "{{ gt .inventory_count 0 }}", func(elseBranch *Builder) {
+        elseBranch.Step("restock_item", "RestockItem").
+            OnFailure("notify_out_of_stock", "NotifyOutOfStock")
+    }).
+    Then("process_payment", "ProcessPayment").
+        OnFailure("refund_payment", "RefundPayment").
+    Fork("fulfillment", func(branch1 *Builder) {
+        branch1.Step("ship_item", "ShipItem").
+            OnFailure("cancel_shipment", "CancelShipment")
+    }, func(branch2 *Builder) {
+        branch2.Condition("check_digital", "{{ eq .product_type \"digital\" }}", func(elseBranch *Builder) {
+            elseBranch.Step("prepare_physical", "PreparePhysical")
+        }).Then("deliver_digital", "DeliverDigital")
+    }).
+    JoinStep("fulfillment_join", []string{"ship_item", "deliver_digital"}, JoinStrategyAll).
+    Then("notify_completion", "NotifyCompletion").
+    Build()
+```
+
+This example demonstrates:
+- **Conditional inventory check** with compensation
+- **Parallel fulfillment** with different logic for digital vs physical products
+- **Smart rollback** that only compensates executed branches
+
 ---
 
 ## 11. Design Principles
@@ -270,6 +383,9 @@ Execution sequence:
 * **Idempotency-Aware Execution** — supports both idempotent and one-shot operations.
 * **Event-Driven Logging** — every state change produces a durable event.
 * **Partial Rollback Support** — rollback to `save_point` when defined.
+* **Smart Branch Rollback** — only compensates executed branches in condition steps.
+* **Type-Safe Conditions** — automatic type conversion for numeric comparisons.
+* **Template-Based Logic** — conditions use familiar Go template syntax.
 
 ---
 
@@ -277,7 +393,9 @@ Execution sequence:
 
 Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 
-* deterministic,
-* transactional,
-* idempotency-aware,
-* and easy to extend with custom step types or policies.
+* **deterministic** — predictable state transitions and rollback behavior,
+* **transactional** — saga pattern with compensating transactions,
+* **idempotency-aware** — supports both idempotent and one-shot operations,
+* **conditionally intelligent** — smart branching and rollback for complex workflows,
+* **parallel-safe** — proper handling of condition steps in concurrent flows,
+* and **easy to extend** with custom step types or policies.
