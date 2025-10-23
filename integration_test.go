@@ -656,7 +656,132 @@ func TestIntegration_Condition__false(t *testing.T) {
 	}
 }
 
+func TestIntegration_Condition_Logic(t *testing.T) {
+	container, pool := setupTestDatabase(t)
+	t.Cleanup(func() {
+		pool.Close()
+		_ = container.Terminate(context.Background())
+	})
+
+	ctx := context.Background()
+	store := NewStore(pool)
+	txManager := NewTxManager(pool)
+	engine := NewEngine(txManager, store)
+
+	// Register handlers
+	engine.RegisterHandler(&TestConditionHandler{})
+
+	// Test case 1: condition should be true (count > 0)
+	t.Run("condition_true", func(t *testing.T) {
+		workflowDef, err := NewBuilder("condition_test", 1).
+			Step("check", "test-condition", WithStepMaxRetries(1)).
+			Condition("is_positive", "{{ gt .count 0 }}", func(elseBranch *Builder) {
+				elseBranch.Step("negative", "test-condition", WithStepMetadata(map[string]any{
+					"message": "negative",
+				}))
+			}).
+			Then("positive", "test-condition", WithStepMetadata(map[string]any{
+				"message": "positive",
+			})).
+			Build()
+
+		require.NoError(t, err)
+		err = engine.RegisterWorkflow(ctx, workflowDef)
+		require.NoError(t, err)
+
+		// Start with count = 5 (should be true)
+		input := json.RawMessage(`{"count": 5}`)
+		instanceID, err := engine.Start(ctx, "condition_test-v1", input)
+		require.NoError(t, err)
+
+		// Process workflow
+		for i := 0; i < 10; i++ {
+			empty, err := engine.ExecuteNext(ctx, "worker1")
+			require.NoError(t, err)
+			if empty {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// Check steps
+		steps, err := engine.GetSteps(ctx, instanceID)
+		require.NoError(t, err)
+
+		// Should have: check, is_positive, positive
+		// Should NOT have: negative
+		stepNames := make([]string, len(steps))
+		for i, step := range steps {
+			stepNames[i] = step.StepName
+		}
+
+		assert.Contains(t, stepNames, "check")
+		assert.Contains(t, stepNames, "is_positive")
+		assert.Contains(t, stepNames, "positive")
+		assert.NotContains(t, stepNames, "negative")
+	})
+
+	// Test case 2: condition should be false (count = 0)
+	t.Run("condition_false", func(t *testing.T) {
+		workflowDef, err := NewBuilder("condition_test", 2).
+			Step("check", "test-condition", WithStepMaxRetries(1)).
+			Condition("is_positive", "{{ gt .count 0 }}", func(elseBranch *Builder) {
+				elseBranch.Step("negative", "test-condition", WithStepMetadata(map[string]any{
+					"message": "negative",
+				}))
+			}).
+			Then("positive", "test-condition", WithStepMetadata(map[string]any{
+				"message": "positive",
+			})).
+			Build()
+
+		require.NoError(t, err)
+		err = engine.RegisterWorkflow(ctx, workflowDef)
+		require.NoError(t, err)
+
+		// Start with count = 0 (should be false)
+		input := json.RawMessage(`{"count": 0}`)
+		instanceID, err := engine.Start(ctx, "condition_test-v2", input)
+		require.NoError(t, err)
+
+		// Process workflow
+		for i := 0; i < 10; i++ {
+			empty, err := engine.ExecuteNext(ctx, "worker1")
+			require.NoError(t, err)
+			if empty {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// Check steps
+		steps, err := engine.GetSteps(ctx, instanceID)
+		require.NoError(t, err)
+
+		// Should have: check, is_positive, negative
+		// Should NOT have: positive
+		stepNames := make([]string, len(steps))
+		for i, step := range steps {
+			stepNames[i] = step.StepName
+		}
+
+		assert.Contains(t, stepNames, "check")
+		assert.Contains(t, stepNames, "is_positive")
+		assert.Contains(t, stepNames, "negative")
+		assert.NotContains(t, stepNames, "positive")
+	})
+}
+
 // Handler implementations for integration tests
+
+type TestConditionHandler struct{}
+
+func (h *TestConditionHandler) Name() string { return "test-condition" }
+
+func (h *TestConditionHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	// Just pass through the input
+	return input, nil
+}
 
 type DataExtractorHandler struct{}
 

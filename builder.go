@@ -458,6 +458,13 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 			}
 		}
 
+		if stepDef.Else != "" {
+			if _, ok := def.Definition.Steps[stepDef.Else]; !ok {
+				return fmt.Errorf("builder %q: step %q references unknown else step: %q",
+					builder.name, stepName, stepDef.Else)
+			}
+		}
+
 		for _, parallelStep := range stepDef.Parallel {
 			if _, ok := def.Definition.Steps[parallelStep]; !ok {
 				return fmt.Errorf("builder %q: step %q references unknown parallel step: %q",
@@ -499,6 +506,9 @@ func (builder *Builder) detectCycles(
 	outs = append(outs, step.Next...)
 	if step.OnFailure != "" {
 		outs = append(outs, step.OnFailure)
+	}
+	if step.Else != "" {
+		outs = append(outs, step.Else)
 	}
 	outs = append(outs, step.Parallel...)
 	outs = append(outs, step.WaitFor...)
