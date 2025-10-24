@@ -1,4 +1,4 @@
-package floxy
+package api
 
 import (
 	"encoding/json"
@@ -8,20 +8,19 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/rom8726/floxy"
 )
 
 type Server struct {
-	api     *API
-	monitor *Monitor
-	cleanup *CleanupService
+	api     *APIService
+	monitor floxy.Monitor
 }
 
-func NewServer(pool *pgxpool.Pool) *Server {
+func NewServer(store floxy.Store, monitor floxy.Monitor) *Server {
 	return &Server{
-		api:     NewAPI(pool),
-		monitor: NewMonitor(pool),
-		cleanup: NewCleanupService(pool),
+		api:     NewAPIService(store),
+		monitor: monitor,
 	}
 }
 
@@ -29,27 +28,27 @@ func (s *Server) Mux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Workflow definitions
-	mux.HandleFunc("GET /api/workflows", s.handleGetWorkflowDefinitions)
-	mux.HandleFunc("GET /api/workflows/{id}", s.handleGetWorkflowDefinition)
-	mux.HandleFunc("GET /api/workflows/{id}/instances", s.handleGetWorkflowInstances)
+	mux.HandleFunc("GET /api/workflows", s.HandleGetWorkflowDefinitions)
+	mux.HandleFunc("GET /api/workflows/{id}", s.HandleGetWorkflowDefinition)
+	mux.HandleFunc("GET /api/workflows/{id}/instances", s.HandleGetWorkflowInstances)
 
 	// Workflow instances
-	mux.HandleFunc("GET /api/instances", s.handleGetAllInstances)
-	mux.HandleFunc("GET /api/instances/{id}", s.handleGetWorkflowInstance)
-	mux.HandleFunc("GET /api/instances/{id}/steps", s.handleGetWorkflowSteps)
-	mux.HandleFunc("GET /api/instances/{id}/events", s.handleGetWorkflowEvents)
+	mux.HandleFunc("GET /api/instances", s.HandleGetAllInstances)
+	mux.HandleFunc("GET /api/instances/{id}", s.HandleGetWorkflowInstance)
+	mux.HandleFunc("GET /api/instances/{id}/steps", s.HandleGetWorkflowSteps)
+	mux.HandleFunc("GET /api/instances/{id}/events", s.HandleGetWorkflowEvents)
 
 	// Statistics
-	mux.HandleFunc("GET /api/stats", s.handleGetStats)
-	mux.HandleFunc("GET /api/stats/summary", s.handleGetSummaryStats)
+	mux.HandleFunc("GET /api/stats", s.HandleGetStats)
+	mux.HandleFunc("GET /api/stats/summary", s.HandleGetSummaryStats)
 
 	// Active instances
-	mux.HandleFunc("GET /api/instances/active", s.handleGetActiveInstances)
+	mux.HandleFunc("GET /api/instances/active", s.HandleGetActiveInstances)
 
 	return mux
 }
 
-func (s *Server) handleGetWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	definitions, err := s.api.GetWorkflowDefinitions(ctx)
@@ -62,7 +61,7 @@ func (s *Server) handleGetWorkflowDefinitions(w http.ResponseWriter, r *http.Req
 	_ = json.NewEncoder(w).Encode(definitions)
 }
 
-func (s *Server) handleGetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
@@ -80,7 +79,7 @@ func (s *Server) handleGetWorkflowDefinition(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(definition)
 }
 
-func (s *Server) handleGetWorkflowInstances(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowInstances(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	workflowID := r.PathValue("id")
 
@@ -105,7 +104,7 @@ func (s *Server) handleGetWorkflowInstances(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(instances)
 }
 
-func (s *Server) handleGetAllInstances(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetAllInstances(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	instances, err := s.api.GetAllWorkflowInstances(ctx)
@@ -118,7 +117,7 @@ func (s *Server) handleGetAllInstances(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(instances)
 }
 
-func (s *Server) handleGetWorkflowInstance(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowInstance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	idStr := r.PathValue("id")
 
@@ -142,7 +141,7 @@ func (s *Server) handleGetWorkflowInstance(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(instance)
 }
 
-func (s *Server) handleGetWorkflowSteps(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowSteps(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	idStr := r.PathValue("id")
 
@@ -173,7 +172,7 @@ func (s *Server) handleGetWorkflowSteps(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(steps)
 }
 
-func (s *Server) handleGetWorkflowEvents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetWorkflowEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	idStr := r.PathValue("id")
 
@@ -204,7 +203,7 @@ func (s *Server) handleGetWorkflowEvents(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(events)
 }
 
-func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	stats, err := s.monitor.GetWorkflowStats(ctx)
@@ -217,7 +216,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(stats)
 }
 
-func (s *Server) handleGetSummaryStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetSummaryStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	stats, err := s.api.GetSummaryStats(ctx)
@@ -230,7 +229,7 @@ func (s *Server) handleGetSummaryStats(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(stats)
 }
 
-func (s *Server) handleGetActiveInstances(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetActiveInstances(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	instances, err := s.api.GetActiveInstances(ctx)

@@ -7,12 +7,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Monitor struct {
+type MonitorImpl struct {
 	pool *pgxpool.Pool
 }
 
-func NewMonitor(pool *pgxpool.Pool) *Monitor {
-	return &Monitor{pool: pool}
+func NewMonitor(pool *pgxpool.Pool) *MonitorImpl {
+	return &MonitorImpl{pool: pool}
 }
 
 type WorkflowStats struct {
@@ -25,7 +25,7 @@ type WorkflowStats struct {
 	AverageDuration    time.Duration `json:"average_duration"`
 }
 
-func (m *Monitor) GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error) {
+func (m *MonitorImpl) GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error) {
 	const query = `
 SELECT 
 	name,
@@ -85,7 +85,7 @@ type ActiveWorkflow struct {
 	RolledBackSteps   int            `json:"rolled_back_steps"`
 }
 
-func (m *Monitor) GetActiveWorkflows(ctx context.Context) ([]ActiveWorkflow, error) {
+func (m *MonitorImpl) GetActiveWorkflows(ctx context.Context) ([]ActiveWorkflow, error) {
 	const query = `
 SELECT 
 	id,
@@ -136,7 +136,7 @@ FROM workflows.active_workflows`
 	return workflows, rows.Err()
 }
 
-func (m *Monitor) GetQueueLength(ctx context.Context) (int, error) {
+func (m *MonitorImpl) GetQueueLength(ctx context.Context) (int, error) {
 	const query = `SELECT COUNT(*) FROM workflows.workflow_queue WHERE attempted_at IS NULL`
 
 	var count int
