@@ -2,10 +2,12 @@ package floxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,6 +41,10 @@ func (s *Server) Mux() *http.ServeMux {
 
 	// Statistics
 	mux.HandleFunc("GET /api/stats", s.handleGetStats)
+	mux.HandleFunc("GET /api/stats/summary", s.handleGetSummaryStats)
+
+	// Active instances
+	mux.HandleFunc("GET /api/instances/active", s.handleGetActiveInstances)
 
 	return mux
 }
@@ -62,6 +68,10 @@ func (s *Server) handleGetWorkflowDefinition(w http.ResponseWriter, r *http.Requ
 
 	definition, err := s.api.GetWorkflowDefinition(ctx, id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Workflow definition not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to fetch workflow definition: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -73,6 +83,17 @@ func (s *Server) handleGetWorkflowDefinition(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleGetWorkflowInstances(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	workflowID := r.PathValue("id")
+
+	// First check if workflow exists
+	_, err := s.api.GetWorkflowDefinition(ctx, workflowID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Workflow not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to fetch workflow: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	instances, err := s.api.GetWorkflowInstances(ctx, workflowID)
 	if err != nil {
@@ -109,6 +130,10 @@ func (s *Server) handleGetWorkflowInstance(w http.ResponseWriter, r *http.Reques
 
 	instance, err := s.api.GetWorkflowInstance(ctx, instanceID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -124,6 +149,17 @@ func (s *Server) handleGetWorkflowSteps(w http.ResponseWriter, r *http.Request) 
 	instanceID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid instance ID", http.StatusBadRequest)
+		return
+	}
+
+	// First check if instance exists
+	_, err = s.api.GetWorkflowInstance(ctx, instanceID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -144,6 +180,17 @@ func (s *Server) handleGetWorkflowEvents(w http.ResponseWriter, r *http.Request)
 	instanceID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid instance ID", http.StatusBadRequest)
+		return
+	}
+
+	// First check if instance exists
+	_, err = s.api.GetWorkflowInstance(ctx, instanceID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -168,4 +215,30 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) handleGetSummaryStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	stats, err := s.api.GetSummaryStats(ctx)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to fetch summary stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) handleGetActiveInstances(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	instances, err := s.api.GetActiveInstances(ctx)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to fetch active instances: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(instances)
 }

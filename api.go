@@ -2,255 +2,110 @@ package floxy
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type API struct {
-	pool *pgxpool.Pool
+	store Store
 }
 
 func NewAPI(pool *pgxpool.Pool) *API {
-	return &API{pool: pool}
+	return &API{store: NewStore(pool)}
 }
 
 func (a *API) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error) {
-	const query = `
-SELECT id, name, version, definition, created_at
-FROM workflows.workflow_definitions
-ORDER BY name, version DESC`
-
-	rows, err := a.pool.Query(ctx, query)
+	definitions, err := a.store.GetWorkflowDefinitions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var definitions []WorkflowDefinition
-	for rows.Next() {
-		var def WorkflowDefinition
-		var definitionBytes []byte
-		err := rows.Scan(
-			&def.ID,
-			&def.Name,
-			&def.Version,
-			&definitionBytes,
-			&def.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := json.Unmarshal(definitionBytes, &def.Definition); err != nil {
-			return nil, err
-		}
-		definitions = append(definitions, def)
+	var result []WorkflowDefinition
+	for _, def := range definitions {
+		result = append(result, *def)
 	}
 
-	return definitions, rows.Err()
+	return result, nil
 }
 
 func (a *API) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
-	const query = `
-SELECT id, name, version, definition, created_at
-FROM workflows.workflow_definitions
-WHERE id = $1`
-
-	var def WorkflowDefinition
-	var definitionBytes []byte
-	err := a.pool.QueryRow(ctx, query, id).Scan(
-		&def.ID,
-		&def.Name,
-		&def.Version,
-		&definitionBytes,
-		&def.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(definitionBytes, &def.Definition); err != nil {
-		return nil, err
-	}
-
-	return &def, nil
+	return a.store.GetWorkflowDefinition(ctx, id)
 }
 
 func (a *API) GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error) {
-	const query = `
-SELECT id, workflow_id, status, input, output, error, 
-		started_at, completed_at, created_at, updated_at
-FROM workflows.workflow_instances
-WHERE workflow_id = $1
-ORDER BY created_at DESC`
-
-	rows, err := a.pool.Query(ctx, query, workflowID)
+	instances, err := a.store.GetWorkflowInstances(ctx, workflowID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var instances []WorkflowInstance
-	for rows.Next() {
-		var instance WorkflowInstance
-		err := rows.Scan(
-			&instance.ID,
-			&instance.WorkflowID,
-			&instance.Status,
-			&instance.Input,
-			&instance.Output,
-			&instance.Error,
-			&instance.StartedAt,
-			&instance.CompletedAt,
-			&instance.CreatedAt,
-			&instance.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		instances = append(instances, instance)
+	var result []WorkflowInstance
+	for _, instance := range instances {
+		result = append(result, *instance)
 	}
 
-	return instances, rows.Err()
+	return result, nil
 }
 
 func (a *API) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error) {
-	const query = `
-SELECT id, workflow_id, status, input, output, error, 
-		started_at, completed_at, created_at, updated_at
-FROM workflows.workflow_instances
-ORDER BY created_at DESC`
-
-	rows, err := a.pool.Query(ctx, query)
+	instances, err := a.store.GetAllWorkflowInstances(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var instances []WorkflowInstance
-	for rows.Next() {
-		var instance WorkflowInstance
-		err := rows.Scan(
-			&instance.ID,
-			&instance.WorkflowID,
-			&instance.Status,
-			&instance.Input,
-			&instance.Output,
-			&instance.Error,
-			&instance.StartedAt,
-			&instance.CompletedAt,
-			&instance.CreatedAt,
-			&instance.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		instances = append(instances, instance)
+	var result []WorkflowInstance
+	for _, instance := range instances {
+		result = append(result, *instance)
 	}
 
-	return instances, rows.Err()
+	return result, nil
 }
 
 func (a *API) GetWorkflowInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
-	const query = `
-SELECT id, workflow_id, status, input, output, error, 
-		started_at, completed_at, created_at, updated_at
-FROM workflows.workflow_instances
-WHERE id = $1`
-
-	var instance WorkflowInstance
-	err := a.pool.QueryRow(ctx, query, instanceID).Scan(
-		&instance.ID,
-		&instance.WorkflowID,
-		&instance.Status,
-		&instance.Input,
-		&instance.Output,
-		&instance.Error,
-		&instance.StartedAt,
-		&instance.CompletedAt,
-		&instance.CreatedAt,
-		&instance.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &instance, nil
+	return a.store.GetInstance(ctx, instanceID)
 }
 
 func (a *API) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
-	const query = `
-SELECT id, instance_id, step_name, step_type, status, input, output, error,
-		retry_count, max_retries, compensation_retry_count,
-		started_at, completed_at, created_at
-FROM workflows.workflow_steps
-WHERE instance_id = $1
-ORDER BY created_at`
-
-	rows, err := a.pool.Query(ctx, query, instanceID)
+	steps, err := a.store.GetWorkflowSteps(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var steps []WorkflowStep
-	for rows.Next() {
-		var step WorkflowStep
-		err := rows.Scan(
-			&step.ID,
-			&step.InstanceID,
-			&step.StepName,
-			&step.StepType,
-			&step.Status,
-			&step.Input,
-			&step.Output,
-			&step.Error,
-			&step.RetryCount,
-			&step.MaxRetries,
-			&step.CompensationRetryCount,
-			&step.StartedAt,
-			&step.CompletedAt,
-			&step.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		steps = append(steps, step)
+	var result []WorkflowStep
+	for _, step := range steps {
+		result = append(result, *step)
 	}
 
-	return steps, rows.Err()
+	return result, nil
 }
 
 func (a *API) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
-	const query = `
-SELECT id, instance_id, step_id, event_type, payload, created_at
-FROM workflows.workflow_events
-WHERE instance_id = $1
-ORDER BY created_at`
-
-	rows, err := a.pool.Query(ctx, query, instanceID)
+	events, err := a.store.GetWorkflowEvents(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var events []WorkflowEvent
-	for rows.Next() {
-		var event WorkflowEvent
-		err := rows.Scan(
-			&event.ID,
-			&event.InstanceID,
-			&event.StepID,
-			&event.EventType,
-			&event.Payload,
-			&event.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, event)
+	var result []WorkflowEvent
+	for _, event := range events {
+		result = append(result, *event)
 	}
 
-	return events, rows.Err()
+	return result, nil
+}
+
+func (a *API) GetSummaryStats(ctx context.Context) (*SummaryStats, error) {
+	return a.store.GetSummaryStats(ctx)
+}
+
+func (a *API) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error) {
+	instances, err := a.store.GetActiveInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ActiveWorkflowInstance
+	for _, instance := range instances {
+		result = append(result, *instance)
+	}
+
+	return result, nil
 }
