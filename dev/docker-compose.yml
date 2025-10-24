@@ -17,5 +17,22 @@ services:
       - "./postgresql.conf:/etc/postgresql.conf"
     ports:
       - "5435:5432"
+
+  floxy-ui:
+    image: rom8726/floxy-ui:latest
+    container_name: floxy-ui
+    restart: always
+    environment:
+      DB_HOST: floxy-pg
+      DB_PORT: 5432
+      DB_NAME: floxy
+      DB_USER: floxy
+      DB_PASSWORD: password
+      NODE_ENV: production
+    ports:
+      - "3002:3001"
+    depends_on:
+      - floxy-pg
+
 volumes:
   floxy_pg:
