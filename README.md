@@ -61,6 +61,10 @@ Everything is plain Go — just like your codebase.
 
 You can embed Floxy inside any Go service.
 
+> Floxy is for developers who love Go, simplicity, and control.
+No orchestration clusters. No external DSLs.
+Just workflows — defined in Go, executed anywhere.
+
 ## Quick Start
 
 ```go
