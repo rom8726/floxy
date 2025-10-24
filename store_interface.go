@@ -69,7 +69,7 @@ type Store interface {
 	GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error)
 	GetSummaryStats(ctx context.Context) (*SummaryStats, error)
 	GetActiveInstances(ctx context.Context) ([]*ActiveWorkflowInstance, error)
-	GetWorkflowDefinitions(ctx context.Context) ([]*WorkflowDefinition, error)
+	GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error)
 	GetWorkflowInstances(ctx context.Context, workflowID string) ([]*WorkflowInstance, error)
 	GetAllWorkflowInstances(ctx context.Context) ([]*WorkflowInstance, error)
 	GetWorkflowSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error)

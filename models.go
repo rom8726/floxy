@@ -138,12 +138,12 @@ type JoinState struct {
 }
 
 type SummaryStats struct {
-	TotalWorkflows     int     `json:"total_workflows"`
-	ActiveInstances    int     `json:"active_instances"`
-	CompletedInstances int     `json:"completed_instances"`
-	FailedInstances    int     `json:"failed_instances"`
-	SuccessRate        float64 `json:"success_rate"`
-	AvgDuration        float64 `json:"avg_duration_seconds"`
+	TotalWorkflows     uint `json:"total_workflows"`
+	CompletedWorkflows uint `json:"completed_workflows"`
+	FailedWorkflows    uint `json:"failed_workflows"`
+	RunningWorkflows   uint `json:"running_workflows"`
+	PendingWorkflows   uint `json:"pending_workflows"`
+	ActiveWorkflows    uint `json:"active_workflows"`
 }
 
 type ActiveWorkflowInstance struct {

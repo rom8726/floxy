@@ -22,9 +22,9 @@ func (a *APIService) GetWorkflowDefinitions(ctx context.Context) ([]floxy.Workfl
 		return nil, err
 	}
 
-	result := make([]floxy.WorkflowDefinition, len(definitions))
+	result := make([]floxy.WorkflowDefinition, 0, len(definitions))
 	for _, def := range definitions {
-		result = append(result, *def)
+		result = append(result, def)
 	}
 
 	return result, nil
@@ -40,7 +40,7 @@ func (a *APIService) GetWorkflowInstances(ctx context.Context, workflowID string
 		return nil, err
 	}
 
-	result := make([]floxy.WorkflowInstance, len(instances))
+	result := make([]floxy.WorkflowInstance, 0, len(instances))
 	for _, instance := range instances {
 		result = append(result, *instance)
 	}
@@ -54,7 +54,7 @@ func (a *APIService) GetAllWorkflowInstances(ctx context.Context) ([]floxy.Workf
 		return nil, err
 	}
 
-	result := make([]floxy.WorkflowInstance, len(instances))
+	result := make([]floxy.WorkflowInstance, 0, len(instances))
 	for _, instance := range instances {
 		result = append(result, *instance)
 	}
@@ -72,7 +72,7 @@ func (a *APIService) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]
 		return nil, err
 	}
 
-	result := make([]floxy.WorkflowStep, len(steps))
+	result := make([]floxy.WorkflowStep, 0, len(steps))
 	for _, step := range steps {
 		result = append(result, *step)
 	}
@@ -86,7 +86,7 @@ func (a *APIService) GetWorkflowEvents(ctx context.Context, instanceID int64) ([
 		return nil, err
 	}
 
-	result := make([]floxy.WorkflowEvent, len(events))
+	result := make([]floxy.WorkflowEvent, 0, len(events))
 	for _, event := range events {
 		result = append(result, *event)
 	}
@@ -104,7 +104,7 @@ func (a *APIService) GetActiveInstances(ctx context.Context) ([]floxy.ActiveWork
 		return nil, err
 	}
 
-	result := make([]floxy.ActiveWorkflowInstance, len(instances))
+	result := make([]floxy.ActiveWorkflowInstance, 0, len(instances))
 	for _, instance := range instances {
 		result = append(result, *instance)
 	}

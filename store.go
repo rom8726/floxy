@@ -444,35 +444,29 @@ func (store *StoreImpl) GetSummaryStats(ctx context.Context) (*SummaryStats, err
 
 	const query = `
 SELECT 
-    COUNT(DISTINCT w.id) as total_workflows,
-    COUNT(CASE WHEN wi.status = 'running' THEN 1 END) as active_instances,
-    COUNT(CASE WHEN wi.status = 'completed' THEN 1 END) as completed_instances,
-    COUNT(CASE WHEN wi.status = 'failed' THEN 1 END) as failed_instances,
-    AVG(CASE WHEN wi.status = 'completed' THEN EXTRACT(EPOCH FROM (wi.updated_at - wi.created_at)) END) as avg_duration_seconds
-FROM workflows.workflow_definitions w
-LEFT JOIN workflows.workflow_instances wi ON w.id = wi.workflow_id`
+	COUNT(*) as total_workflows,
+	COUNT(*) FILTER (WHERE status = 'completed') as completed_workflows,
+	COUNT(*) FILTER (WHERE status = 'failed') as failed_workflows,
+	COUNT(*) FILTER (WHERE status = 'running') as running_workflows,
+	COUNT(*) FILTER (WHERE status = 'pending') as pending_workflows
+FROM workflows.workflow_instances`
 
 	var stats SummaryStats
-	var avgDuration *float64
-
 	err := executor.QueryRow(ctx, query).Scan(
 		&stats.TotalWorkflows,
-		&stats.ActiveInstances,
-		&stats.CompletedInstances,
-		&stats.FailedInstances,
-		&avgDuration,
+		&stats.CompletedWorkflows,
+		&stats.FailedWorkflows,
+		&stats.RunningWorkflows,
+		&stats.PendingWorkflows,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if avgDuration != nil {
-		stats.AvgDuration = *avgDuration
-	}
-
-	totalInstances := stats.CompletedInstances + stats.FailedInstances
-	if totalInstances > 0 {
-		stats.SuccessRate = float64(stats.CompletedInstances) / float64(totalInstances)
+	const activeWorkflowsQuery = `SELECT COUNT(*) as active_workflows FROM workflows.active_workflows`
+	err = executor.QueryRow(ctx, activeWorkflowsQuery).Scan(&stats.ActiveWorkflows)
+	if err != nil {
+		return nil, err
 	}
 
 	return &stats, nil
@@ -532,7 +526,7 @@ ORDER BY wi.created_at DESC`
 	return instances, rows.Err()
 }
 
-func (store *StoreImpl) GetWorkflowDefinitions(ctx context.Context) ([]*WorkflowDefinition, error) {
+func (store *StoreImpl) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -546,7 +540,7 @@ ORDER BY name, version DESC`
 	}
 	defer rows.Close()
 
-	var definitions []*WorkflowDefinition
+	var definitions []WorkflowDefinition
 	for rows.Next() {
 		var def WorkflowDefinition
 		var definitionBytes []byte
@@ -564,7 +558,7 @@ ORDER BY name, version DESC`
 		if err := json.Unmarshal(definitionBytes, &def.Definition); err != nil {
 			return nil, err
 		}
-		definitions = append(definitions, &def)
+		definitions = append(definitions, def)
 	}
 
 	return definitions, rows.Err()
