@@ -23,7 +23,7 @@ func NewServer(pool *pgxpool.Pool) *Server {
 	}
 }
 
-func (s *Server) Start(port int) error {
+func (s *Server) Mux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Workflow definitions
@@ -40,15 +40,7 @@ func (s *Server) Start(port int) error {
 	// Statistics
 	mux.HandleFunc("GET /api/stats", s.handleGetStats)
 
-	// Serve static files
-	mux.Handle("/", http.FileServer(http.Dir("./dist/public/")))
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
-	}
-
-	return server.ListenAndServe()
+	return mux
 }
 
 func (s *Server) handleGetWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
