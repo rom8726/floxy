@@ -136,3 +136,25 @@ type JoinState struct {
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
+
+type SummaryStats struct {
+	TotalWorkflows     uint `json:"total_workflows"`
+	CompletedWorkflows uint `json:"completed_workflows"`
+	FailedWorkflows    uint `json:"failed_workflows"`
+	RunningWorkflows   uint `json:"running_workflows"`
+	PendingWorkflows   uint `json:"pending_workflows"`
+	ActiveWorkflows    uint `json:"active_workflows"`
+}
+
+type ActiveWorkflowInstance struct {
+	ID              int64     `json:"id"`
+	WorkflowID      string    `json:"workflow_id"`
+	WorkflowName    string    `json:"workflow_name"`
+	Status          string    `json:"status"`
+	StartedAt       time.Time `json:"started_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	CurrentStep     string    `json:"current_step"`
+	TotalSteps      int       `json:"total_steps"`
+	CompletedSteps  int       `json:"completed_steps"`
+	RolledBackSteps int       `json:"rolled_back_steps"`
+}

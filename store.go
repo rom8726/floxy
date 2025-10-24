@@ -439,6 +439,290 @@ WHERE id = $3`
 	return err
 }
 
+func (store *StoreImpl) GetSummaryStats(ctx context.Context) (*SummaryStats, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT 
+	COUNT(*) as total_workflows,
+	COUNT(*) FILTER (WHERE status = 'completed') as completed_workflows,
+	COUNT(*) FILTER (WHERE status = 'failed') as failed_workflows,
+	COUNT(*) FILTER (WHERE status = 'running') as running_workflows,
+	COUNT(*) FILTER (WHERE status = 'pending') as pending_workflows
+FROM workflows.workflow_instances`
+
+	var stats SummaryStats
+	err := executor.QueryRow(ctx, query).Scan(
+		&stats.TotalWorkflows,
+		&stats.CompletedWorkflows,
+		&stats.FailedWorkflows,
+		&stats.RunningWorkflows,
+		&stats.PendingWorkflows,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	const activeWorkflowsQuery = `SELECT COUNT(*) as active_workflows FROM workflows.active_workflows`
+	err = executor.QueryRow(ctx, activeWorkflowsQuery).Scan(&stats.ActiveWorkflows)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stats, nil
+}
+
+func (store *StoreImpl) GetActiveInstances(ctx context.Context) ([]*ActiveWorkflowInstance, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT 
+    wi.id,
+    wi.workflow_id,
+    w.name as workflow_name,
+    wi.status,
+    wi.created_at as started_at,
+    wi.updated_at,
+    (SELECT step_name FROM workflows.workflow_steps WHERE instance_id = wi.id AND status = 'running' LIMIT 1) as current_step,
+    (SELECT COUNT(*) FROM workflows.workflow_steps WHERE instance_id = wi.id) as total_steps,
+    (SELECT COUNT(*) FROM workflows.workflow_steps WHERE instance_id = wi.id AND status = 'completed') as completed_steps,
+    (SELECT COUNT(*) FROM workflows.workflow_steps WHERE instance_id = wi.id AND status = 'rolled_back') as rolled_back_steps
+FROM workflows.workflow_instances wi
+JOIN workflows.workflow_definitions w ON wi.workflow_id = w.id
+WHERE wi.status IN ('running', 'pending', 'paused')
+ORDER BY wi.created_at DESC`
+
+	rows, err := executor.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var instances []*ActiveWorkflowInstance
+	for rows.Next() {
+		var instance ActiveWorkflowInstance
+		var currentStep *string
+		err := rows.Scan(
+			&instance.ID,
+			&instance.WorkflowID,
+			&instance.WorkflowName,
+			&instance.Status,
+			&instance.StartedAt,
+			&instance.UpdatedAt,
+			&currentStep,
+			&instance.TotalSteps,
+			&instance.CompletedSteps,
+			&instance.RolledBackSteps,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if currentStep != nil {
+			instance.CurrentStep = *currentStep
+		}
+		instances = append(instances, &instance)
+	}
+
+	return instances, rows.Err()
+}
+
+func (store *StoreImpl) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, name, version, definition, created_at
+FROM workflows.workflow_definitions
+ORDER BY name, version DESC`
+
+	rows, err := executor.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var definitions []WorkflowDefinition
+	for rows.Next() {
+		var def WorkflowDefinition
+		var definitionBytes []byte
+		err := rows.Scan(
+			&def.ID,
+			&def.Name,
+			&def.Version,
+			&definitionBytes,
+			&def.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := json.Unmarshal(definitionBytes, &def.Definition); err != nil {
+			return nil, err
+		}
+		definitions = append(definitions, def)
+	}
+
+	return definitions, rows.Err()
+}
+
+func (store *StoreImpl) GetWorkflowInstances(ctx context.Context, workflowID string) ([]*WorkflowInstance, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, workflow_id, status, input, output, error, 
+		started_at, completed_at, created_at, updated_at
+FROM workflows.workflow_instances
+WHERE workflow_id = $1
+ORDER BY created_at DESC`
+
+	rows, err := executor.Query(ctx, query, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var instances []*WorkflowInstance
+	for rows.Next() {
+		var instance WorkflowInstance
+		err := rows.Scan(
+			&instance.ID,
+			&instance.WorkflowID,
+			&instance.Status,
+			&instance.Input,
+			&instance.Output,
+			&instance.Error,
+			&instance.StartedAt,
+			&instance.CompletedAt,
+			&instance.CreatedAt,
+			&instance.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, &instance)
+	}
+
+	return instances, rows.Err()
+}
+
+func (store *StoreImpl) GetAllWorkflowInstances(ctx context.Context) ([]*WorkflowInstance, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, workflow_id, status, input, output, error, 
+		started_at, completed_at, created_at, updated_at
+FROM workflows.workflow_instances
+ORDER BY created_at DESC`
+
+	rows, err := executor.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var instances []*WorkflowInstance
+	for rows.Next() {
+		var instance WorkflowInstance
+		err := rows.Scan(
+			&instance.ID,
+			&instance.WorkflowID,
+			&instance.Status,
+			&instance.Input,
+			&instance.Output,
+			&instance.Error,
+			&instance.StartedAt,
+			&instance.CompletedAt,
+			&instance.CreatedAt,
+			&instance.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, &instance)
+	}
+
+	return instances, rows.Err()
+}
+
+func (store *StoreImpl) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, step_name, step_type, status, input, output, error,
+		retry_count, max_retries, compensation_retry_count,
+		started_at, completed_at, created_at
+FROM workflows.workflow_steps
+WHERE instance_id = $1
+ORDER BY created_at`
+
+	rows, err := executor.Query(ctx, query, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var steps []*WorkflowStep
+	for rows.Next() {
+		var step WorkflowStep
+		err := rows.Scan(
+			&step.ID,
+			&step.InstanceID,
+			&step.StepName,
+			&step.StepType,
+			&step.Status,
+			&step.Input,
+			&step.Output,
+			&step.Error,
+			&step.RetryCount,
+			&step.MaxRetries,
+			&step.CompensationRetryCount,
+			&step.StartedAt,
+			&step.CompletedAt,
+			&step.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, &step)
+	}
+
+	return steps, rows.Err()
+}
+
+func (store *StoreImpl) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]*WorkflowEvent, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, step_id, event_type, payload, created_at
+FROM workflows.workflow_events
+WHERE instance_id = $1
+ORDER BY created_at`
+
+	rows, err := executor.Query(ctx, query, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*WorkflowEvent
+	for rows.Next() {
+		var event WorkflowEvent
+		err := rows.Scan(
+			&event.ID,
+			&event.InstanceID,
+			&event.StepID,
+			&event.EventType,
+			&event.Payload,
+			&event.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, &event)
+	}
+
+	return events, rows.Err()
+}
+
 func (store *StoreImpl) getExecutor(ctx context.Context) Tx {
 	if tx := TxFromContext(ctx); tx != nil {
 		return tx
