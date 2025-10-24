@@ -431,7 +431,7 @@ func TestEngine_ExecuteNext_StepNotFound(t *testing.T) {
 		Status:     StatusRunning,
 	}
 
-	steps := []*WorkflowStep{}
+	steps := []WorkflowStep{}
 
 	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
 		mockStore.EXPECT().DequeueStep(mock.Anything, workerID).Return(queueItem, nil)
@@ -547,7 +547,7 @@ func TestEngine_ExecuteSavePoint_Success(t *testing.T) {
 		Status:     StatusRunning,
 	}
 
-	step := &WorkflowStep{
+	step := WorkflowStep{
 		ID:         stepID,
 		InstanceID: instanceID,
 		StepName:   "savepoint1",
@@ -582,9 +582,9 @@ func TestEngine_ExecuteSavePoint_Success(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepCompleted, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 
-	err := engine.executeStep(context.Background(), instance, step)
+	err := engine.executeStep(context.Background(), instance, &step)
 
 	assert.NoError(t, err)
 }
@@ -750,7 +750,7 @@ func TestEngine_ExecuteJoin_Success(t *testing.T) {
 		IsReady:      true,
 	}
 
-	steps := []*WorkflowStep{
+	steps := []WorkflowStep{
 		{
 			ID:         789,
 			InstanceID: instanceID,
@@ -820,7 +820,7 @@ func TestEngine_ExecuteJoin_WithFailures(t *testing.T) {
 		IsReady:      true,
 	}
 
-	steps := []*WorkflowStep{
+	steps := []WorkflowStep{
 		{
 			ID:         789,
 			InstanceID: instanceID,
@@ -867,7 +867,7 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 		Status:     StatusRunning,
 	}
 
-	step := &WorkflowStep{
+	step := WorkflowStep{
 		ID:         stepID,
 		InstanceID: instanceID,
 		StepName:   "step1",
@@ -908,14 +908,14 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepCompleted, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "step2"
 	})).Return(nil)
 	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
 
-	err := engine.handleStepSuccess(context.Background(), instance, step, stepDef, output, true)
+	err := engine.handleStepSuccess(context.Background(), instance, &step, stepDef, output, true)
 
 	assert.NoError(t, err)
 }
@@ -979,7 +979,7 @@ func TestEngine_HandleStepFailure_NoRetriesLeft(t *testing.T) {
 		Status:     StatusRunning,
 	}
 
-	step := &WorkflowStep{
+	step := WorkflowStep{
 		ID:         stepID,
 		InstanceID: instanceID,
 		StepName:   "step1",
@@ -1014,10 +1014,10 @@ func TestEngine_HandleStepFailure_NoRetriesLeft(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepFailed, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 	mockStore.EXPECT().UpdateInstanceStatus(mock.Anything, instanceID, StatusFailed, mock.Anything, mock.Anything).Return(nil)
 
-	err := engine.handleStepFailure(context.Background(), instance, step, stepDef, stepErr)
+	err := engine.handleStepFailure(context.Background(), instance, &step, stepDef, stepErr)
 
 	assert.NoError(t, err)
 }
@@ -1036,7 +1036,7 @@ func TestEngine_HandleStepFailure_WithOnFailure(t *testing.T) {
 		Status:     StatusRunning,
 	}
 
-	step := &WorkflowStep{
+	step := WorkflowStep{
 		ID:         stepID,
 		InstanceID: instanceID,
 		StepName:   "step1",
@@ -1078,10 +1078,10 @@ func TestEngine_HandleStepFailure_WithOnFailure(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepFailed, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]*WorkflowStep{step}, nil)
+	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 	mockStore.EXPECT().UpdateInstanceStatus(mock.Anything, instanceID, StatusFailed, mock.Anything, mock.Anything).Return(nil)
 
-	err := engine.handleStepFailure(context.Background(), instance, step, stepDef, stepErr)
+	err := engine.handleStepFailure(context.Background(), instance, &step, stepDef, stepErr)
 
 	assert.NoError(t, err)
 }
@@ -1112,7 +1112,7 @@ func TestEngine_GetSteps(t *testing.T) {
 	engine := NewEngine(mockTxManager, mockStore)
 
 	instanceID := int64(123)
-	expectedSteps := []*WorkflowStep{
+	expectedSteps := []WorkflowStep{
 		{
 			ID:         456,
 			InstanceID: instanceID,

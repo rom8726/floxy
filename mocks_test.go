@@ -996,23 +996,23 @@ func (_c *MockStore_EnqueueStep_Call) RunAndReturn(run func(ctx context.Context,
 }
 
 // GetActiveInstances provides a mock function for the type MockStore
-func (_mock *MockStore) GetActiveInstances(ctx context.Context) ([]*ActiveWorkflowInstance, error) {
+func (_mock *MockStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error) {
 	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetActiveInstances")
 	}
 
-	var r0 []*ActiveWorkflowInstance
+	var r0 []ActiveWorkflowInstance
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]*ActiveWorkflowInstance, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]ActiveWorkflowInstance, error)); ok {
 		return returnFunc(ctx)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []*ActiveWorkflowInstance); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []ActiveWorkflowInstance); ok {
 		r0 = returnFunc(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*ActiveWorkflowInstance)
+			r0 = ret.Get(0).([]ActiveWorkflowInstance)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
@@ -1047,34 +1047,34 @@ func (_c *MockStore_GetActiveInstances_Call) Run(run func(ctx context.Context)) 
 	return _c
 }
 
-func (_c *MockStore_GetActiveInstances_Call) Return(activeWorkflowInstances []*ActiveWorkflowInstance, err error) *MockStore_GetActiveInstances_Call {
+func (_c *MockStore_GetActiveInstances_Call) Return(activeWorkflowInstances []ActiveWorkflowInstance, err error) *MockStore_GetActiveInstances_Call {
 	_c.Call.Return(activeWorkflowInstances, err)
 	return _c
 }
 
-func (_c *MockStore_GetActiveInstances_Call) RunAndReturn(run func(ctx context.Context) ([]*ActiveWorkflowInstance, error)) *MockStore_GetActiveInstances_Call {
+func (_c *MockStore_GetActiveInstances_Call) RunAndReturn(run func(ctx context.Context) ([]ActiveWorkflowInstance, error)) *MockStore_GetActiveInstances_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetAllWorkflowInstances provides a mock function for the type MockStore
-func (_mock *MockStore) GetAllWorkflowInstances(ctx context.Context) ([]*WorkflowInstance, error) {
+func (_mock *MockStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error) {
 	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllWorkflowInstances")
 	}
 
-	var r0 []*WorkflowInstance
+	var r0 []WorkflowInstance
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]*WorkflowInstance, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]WorkflowInstance, error)); ok {
 		return returnFunc(ctx)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []*WorkflowInstance); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []WorkflowInstance); ok {
 		r0 = returnFunc(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*WorkflowInstance)
+			r0 = ret.Get(0).([]WorkflowInstance)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
@@ -1109,12 +1109,12 @@ func (_c *MockStore_GetAllWorkflowInstances_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockStore_GetAllWorkflowInstances_Call) Return(workflowInstances []*WorkflowInstance, err error) *MockStore_GetAllWorkflowInstances_Call {
+func (_c *MockStore_GetAllWorkflowInstances_Call) Return(workflowInstances []WorkflowInstance, err error) *MockStore_GetAllWorkflowInstances_Call {
 	_c.Call.Return(workflowInstances, err)
 	return _c
 }
 
-func (_c *MockStore_GetAllWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context) ([]*WorkflowInstance, error)) *MockStore_GetAllWorkflowInstances_Call {
+func (_c *MockStore_GetAllWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context) ([]WorkflowInstance, error)) *MockStore_GetAllWorkflowInstances_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1262,23 +1262,23 @@ func (_c *MockStore_GetJoinState_Call) RunAndReturn(run func(ctx context.Context
 }
 
 // GetStepsByInstance provides a mock function for the type MockStore
-func (_mock *MockStore) GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (_mock *MockStore) GetStepsByInstance(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	ret := _mock.Called(ctx, instanceID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetStepsByInstance")
 	}
 
-	var r0 []*WorkflowStep
+	var r0 []WorkflowStep
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]*WorkflowStep, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]WorkflowStep, error)); ok {
 		return returnFunc(ctx, instanceID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []*WorkflowStep); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []WorkflowStep); ok {
 		r0 = returnFunc(ctx, instanceID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*WorkflowStep)
+			r0 = ret.Get(0).([]WorkflowStep)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
@@ -1319,12 +1319,12 @@ func (_c *MockStore_GetStepsByInstance_Call) Run(run func(ctx context.Context, i
 	return _c
 }
 
-func (_c *MockStore_GetStepsByInstance_Call) Return(workflowSteps []*WorkflowStep, err error) *MockStore_GetStepsByInstance_Call {
+func (_c *MockStore_GetStepsByInstance_Call) Return(workflowSteps []WorkflowStep, err error) *MockStore_GetStepsByInstance_Call {
 	_c.Call.Return(workflowSteps, err)
 	return _c
 }
 
-func (_c *MockStore_GetStepsByInstance_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]*WorkflowStep, error)) *MockStore_GetStepsByInstance_Call {
+func (_c *MockStore_GetStepsByInstance_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowStep, error)) *MockStore_GetStepsByInstance_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1522,23 +1522,23 @@ func (_c *MockStore_GetWorkflowDefinitions_Call) RunAndReturn(run func(ctx conte
 }
 
 // GetWorkflowEvents provides a mock function for the type MockStore
-func (_mock *MockStore) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]*WorkflowEvent, error) {
+func (_mock *MockStore) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
 	ret := _mock.Called(ctx, instanceID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWorkflowEvents")
 	}
 
-	var r0 []*WorkflowEvent
+	var r0 []WorkflowEvent
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]*WorkflowEvent, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]WorkflowEvent, error)); ok {
 		return returnFunc(ctx, instanceID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []*WorkflowEvent); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []WorkflowEvent); ok {
 		r0 = returnFunc(ctx, instanceID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*WorkflowEvent)
+			r0 = ret.Get(0).([]WorkflowEvent)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
@@ -1579,34 +1579,34 @@ func (_c *MockStore_GetWorkflowEvents_Call) Run(run func(ctx context.Context, in
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowEvents_Call) Return(workflowEvents []*WorkflowEvent, err error) *MockStore_GetWorkflowEvents_Call {
+func (_c *MockStore_GetWorkflowEvents_Call) Return(workflowEvents []WorkflowEvent, err error) *MockStore_GetWorkflowEvents_Call {
 	_c.Call.Return(workflowEvents, err)
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowEvents_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]*WorkflowEvent, error)) *MockStore_GetWorkflowEvents_Call {
+func (_c *MockStore_GetWorkflowEvents_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowEvent, error)) *MockStore_GetWorkflowEvents_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetWorkflowInstances provides a mock function for the type MockStore
-func (_mock *MockStore) GetWorkflowInstances(ctx context.Context, workflowID string) ([]*WorkflowInstance, error) {
+func (_mock *MockStore) GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error) {
 	ret := _mock.Called(ctx, workflowID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWorkflowInstances")
 	}
 
-	var r0 []*WorkflowInstance
+	var r0 []WorkflowInstance
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*WorkflowInstance, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]WorkflowInstance, error)); ok {
 		return returnFunc(ctx, workflowID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*WorkflowInstance); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []WorkflowInstance); ok {
 		r0 = returnFunc(ctx, workflowID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*WorkflowInstance)
+			r0 = ret.Get(0).([]WorkflowInstance)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
@@ -1647,34 +1647,96 @@ func (_c *MockStore_GetWorkflowInstances_Call) Run(run func(ctx context.Context,
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowInstances_Call) Return(workflowInstances []*WorkflowInstance, err error) *MockStore_GetWorkflowInstances_Call {
+func (_c *MockStore_GetWorkflowInstances_Call) Return(workflowInstances []WorkflowInstance, err error) *MockStore_GetWorkflowInstances_Call {
 	_c.Call.Return(workflowInstances, err)
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context, workflowID string) ([]*WorkflowInstance, error)) *MockStore_GetWorkflowInstances_Call {
+func (_c *MockStore_GetWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context, workflowID string) ([]WorkflowInstance, error)) *MockStore_GetWorkflowInstances_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetWorkflowStats provides a mock function for the type MockStore
+func (_mock *MockStore) GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetWorkflowStats")
+	}
+
+	var r0 []WorkflowStats
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]WorkflowStats, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []WorkflowStats); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]WorkflowStats)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetWorkflowStats_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetWorkflowStats'
+type MockStore_GetWorkflowStats_Call struct {
+	*mock.Call
+}
+
+// GetWorkflowStats is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockStore_Expecter) GetWorkflowStats(ctx interface{}) *MockStore_GetWorkflowStats_Call {
+	return &MockStore_GetWorkflowStats_Call{Call: _e.mock.On("GetWorkflowStats", ctx)}
+}
+
+func (_c *MockStore_GetWorkflowStats_Call) Run(run func(ctx context.Context)) *MockStore_GetWorkflowStats_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetWorkflowStats_Call) Return(workflowStatss []WorkflowStats, err error) *MockStore_GetWorkflowStats_Call {
+	_c.Call.Return(workflowStatss, err)
+	return _c
+}
+
+func (_c *MockStore_GetWorkflowStats_Call) RunAndReturn(run func(ctx context.Context) ([]WorkflowStats, error)) *MockStore_GetWorkflowStats_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetWorkflowSteps provides a mock function for the type MockStore
-func (_mock *MockStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (_mock *MockStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	ret := _mock.Called(ctx, instanceID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWorkflowSteps")
 	}
 
-	var r0 []*WorkflowStep
+	var r0 []WorkflowStep
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]*WorkflowStep, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]WorkflowStep, error)); ok {
 		return returnFunc(ctx, instanceID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []*WorkflowStep); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []WorkflowStep); ok {
 		r0 = returnFunc(ctx, instanceID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*WorkflowStep)
+			r0 = ret.Get(0).([]WorkflowStep)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
@@ -1715,12 +1777,12 @@ func (_c *MockStore_GetWorkflowSteps_Call) Run(run func(ctx context.Context, ins
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowSteps_Call) Return(workflowSteps []*WorkflowStep, err error) *MockStore_GetWorkflowSteps_Call {
+func (_c *MockStore_GetWorkflowSteps_Call) Return(workflowSteps []WorkflowStep, err error) *MockStore_GetWorkflowSteps_Call {
 	_c.Call.Return(workflowSteps, err)
 	return _c
 }
 
-func (_c *MockStore_GetWorkflowSteps_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]*WorkflowStep, error)) *MockStore_GetWorkflowSteps_Call {
+func (_c *MockStore_GetWorkflowSteps_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowStep, error)) *MockStore_GetWorkflowSteps_Call {
 	_c.Call.Return(run)
 	return _c
 }

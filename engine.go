@@ -113,9 +113,11 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 				return fmt.Errorf("get steps: %w", err)
 			}
 
-			for _, s := range steps {
-				if s.ID == *item.StepID {
-					step = s
+			for _, currStep := range steps {
+				currStep := currStep
+				if currStep.ID == *item.StepID {
+					step = &currStep
+
 					break
 				}
 			}
@@ -787,7 +789,7 @@ func (engine *Engine) GetStatus(ctx context.Context, instanceID int64) (Workflow
 	return instance.Status, nil
 }
 
-func (engine *Engine) GetSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (engine *Engine) GetSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	return engine.store.GetStepsByInstance(ctx, instanceID)
 }
 
@@ -890,7 +892,8 @@ func (engine *Engine) rollbackStepsToSavePoint(
 
 	stepMap := make(map[string]*WorkflowStep)
 	for _, step := range steps {
-		stepMap[step.StepName] = step
+		step := step
+		stepMap[step.StepName] = &step
 	}
 	if _, exists := stepMap[failedStep.StepName]; !exists {
 		stepMap[failedStep.StepName] = failedStep
