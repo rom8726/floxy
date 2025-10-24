@@ -22,6 +22,45 @@ Engine specification: [ENGINE](docs/ENGINE_SPEC.md)
 
 > Warning: This engine is ideal for pet projects, but has not been tested in production. Using this in production, you act at your own risk.
 
+## Why Floxy?
+
+**Floxy** is a lightweight, embeddable workflow engine for Go developers.
+It was born from the idea that *not every system needs a full-blown workflow platform like Cadence or Temporal.*
+
+### 1. Lightweight, Not Heavyweight
+
+Most workflow engines require you to deploy multiple services, brokers, and databases just to run a single flow.
+Floxy is different — it’s a **Go library**.
+You import it, initialize an engine, and define your workflow directly in Go code.
+
+No clusters. No queues.
+
+```go
+wf, _ := floxy.NewBuilder("order", 1).
+    Step("reserve_stock", "stock.Reserve").
+    Then("charge_payment", "payment.Charge").
+    OnFailure("refund", "payment.Refund").
+    Build()
+```
+
+That’s it — a complete Saga with compensation.
+
+### 2. Pragmatic by Design
+
+Floxy doesn’t try to solve every problem in distributed systems.
+It focuses on **clear, deterministic workflow execution** with the tools Go developers already use:
+
+* PostgreSQL as durable storage
+* Go’s standard `net/http` for API
+* Structured retries, compensation, and rollback
+
+You don’t need to learn Cadence’s terminology.
+Everything is plain Go — just like your codebase.
+
+### 3. Embedded
+
+You can embed Floxy inside any Go service.
+
 ## Quick Start
 
 ```go
