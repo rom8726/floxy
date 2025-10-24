@@ -21,3 +21,6 @@ savepoint: ## Run rollback to savepoint example
 
 rollback: ## Run rollback example
 	cd rollback_demo && go mod tidy && go run main.go
+
+condition: ## Run condition example
+	cd condition && go mod tidy && go run main.go

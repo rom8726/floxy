@@ -30,11 +30,6 @@ func (h *PaymentHandler) Execute(ctx context.Context, stepCtx floxy.StepContext,
 	// Simulate payment processing
 	time.Sleep(100 * time.Millisecond)
 
-	//// Simulate payment failure for demonstration
-	//if amount > 1000 {
-	//	return nil, fmt.Errorf("payment declined: amount too high")
-	//}
-
 	result := map[string]any{
 		"transaction_id": fmt.Sprintf("txn_%d", time.Now().Unix()),
 		"amount":         amount,
@@ -250,7 +245,6 @@ func main() {
 	fmt.Println("\n=== Processing Workflows ===")
 	for i := range 100 {
 		i = i
-		// Process workflows
 		isEmpty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			fmt.Printf("ExecuteNext: %v\n", err)
