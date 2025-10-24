@@ -40,7 +40,7 @@ func main() {
     ctx := context.Background()
     
     // Connect to PostgreSQL
-    pool, err := pgxpool.New(ctx, "postgres://user:password@localhost:5432/floxy?sslmode=disable")
+    pool, err := pgxpool.New(ctx, "postgres://floxy:password@localhost:5432/floxy?sslmode=disable")
     if err != nil {
         log.Fatal(err)
     }
@@ -206,6 +206,8 @@ Available migrations:
 - `001_initial.up.sql`: Initial schema creation
 - `002_add_savepoint_and_rollback.up.sql`: SavePoint and rollback support
 - `003_add_compensation_retry_count.up.sql`: compensation step status and compensation_retry_count added
+- `004_add_compensation_to_views.up.sql`: active_workflows view updated
+- `005_add_idempotency_key_to_steps.up.sql`: Idempotency Key added to step table
 
 ## Installation
 

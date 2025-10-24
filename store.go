@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 )
@@ -137,17 +138,21 @@ WHERE id = $1`
 }
 
 func (store *StoreImpl) CreateStep(ctx context.Context, step *WorkflowStep) error {
+	if step.IdempotencyKey == "" {
+		step.IdempotencyKey = uuid.NewString()
+	}
+
 	executor := store.getExecutor(ctx)
 
 	const query = `
 INSERT INTO workflows.workflow_steps 
-(instance_id, step_name, step_type, status, input, max_retries, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+(instance_id, step_name, step_type, status, input, max_retries, created_at, idempotency_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, created_at`
 
 	return executor.QueryRow(ctx, query,
 		step.InstanceID, step.StepName, step.StepType,
-		step.Status, step.Input, step.MaxRetries, time.Now(),
+		step.Status, step.Input, step.MaxRetries, time.Now(), step.IdempotencyKey,
 	).Scan(&step.ID, &step.CreatedAt)
 }
 
@@ -178,7 +183,7 @@ func (store *StoreImpl) GetStepsByInstance(ctx context.Context, instanceID int64
 
 	const query = `
 SELECT id, instance_id, step_name, step_type, status, input, output, error,
-	retry_count, max_retries, started_at, completed_at, created_at
+	retry_count, max_retries, idempotency_key, started_at, completed_at, created_at
 FROM workflows.workflow_steps
 WHERE instance_id = $1
 ORDER BY created_at`
@@ -195,7 +200,7 @@ ORDER BY created_at`
 		err := rows.Scan(
 			&step.ID, &step.InstanceID, &step.StepName, &step.StepType,
 			&step.Status, &step.Input, &step.Output, &step.Error,
-			&step.RetryCount, &step.MaxRetries,
+			&step.RetryCount, &step.MaxRetries, &step.IdempotencyKey,
 			&step.StartedAt, &step.CompletedAt, &step.CreatedAt,
 		)
 		if err != nil {

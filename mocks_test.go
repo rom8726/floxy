@@ -186,23 +186,71 @@ func (_m *MockStepContext) EXPECT() *MockStepContext_Expecter {
 	return &MockStepContext_Expecter{mock: &_m.Mock}
 }
 
+// CloneData provides a mock function for the type MockStepContext
+func (_mock *MockStepContext) CloneData() map[string]any {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CloneData")
+	}
+
+	var r0 map[string]any
+	if returnFunc, ok := ret.Get(0).(func() map[string]any); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]any)
+		}
+	}
+	return r0
+}
+
+// MockStepContext_CloneData_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CloneData'
+type MockStepContext_CloneData_Call struct {
+	*mock.Call
+}
+
+// CloneData is a helper method to define mock.On call
+func (_e *MockStepContext_Expecter) CloneData() *MockStepContext_CloneData_Call {
+	return &MockStepContext_CloneData_Call{Call: _e.mock.On("CloneData")}
+}
+
+func (_c *MockStepContext_CloneData_Call) Run(run func()) *MockStepContext_CloneData_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockStepContext_CloneData_Call) Return(stringToV map[string]any) *MockStepContext_CloneData_Call {
+	_c.Call.Return(stringToV)
+	return _c
+}
+
+func (_c *MockStepContext_CloneData_Call) RunAndReturn(run func() map[string]any) *MockStepContext_CloneData_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetVariable provides a mock function for the type MockStepContext
-func (_mock *MockStepContext) GetVariable(key string) (string, bool) {
+func (_mock *MockStepContext) GetVariable(key string) (any, bool) {
 	ret := _mock.Called(key)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetVariable")
 	}
 
-	var r0 string
+	var r0 any
 	var r1 bool
-	if returnFunc, ok := ret.Get(0).(func(string) (string, bool)); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) (any, bool)); ok {
 		return returnFunc(key)
 	}
-	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) any); ok {
 		r0 = returnFunc(key)
 	} else {
-		r0 = ret.Get(0).(string)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(any)
+		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(string) bool); ok {
 		r1 = returnFunc(key)
@@ -236,12 +284,116 @@ func (_c *MockStepContext_GetVariable_Call) Run(run func(key string)) *MockStepC
 	return _c
 }
 
-func (_c *MockStepContext_GetVariable_Call) Return(s string, b bool) *MockStepContext_GetVariable_Call {
+func (_c *MockStepContext_GetVariable_Call) Return(v any, b bool) *MockStepContext_GetVariable_Call {
+	_c.Call.Return(v, b)
+	return _c
+}
+
+func (_c *MockStepContext_GetVariable_Call) RunAndReturn(run func(key string) (any, bool)) *MockStepContext_GetVariable_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetVariableAsString provides a mock function for the type MockStepContext
+func (_mock *MockStepContext) GetVariableAsString(key string) (string, bool) {
+	ret := _mock.Called(key)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVariableAsString")
+	}
+
+	var r0 string
+	var r1 bool
+	if returnFunc, ok := ret.Get(0).(func(string) (string, bool)); ok {
+		return returnFunc(key)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
+		r0 = returnFunc(key)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) bool); ok {
+		r1 = returnFunc(key)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+	return r0, r1
+}
+
+// MockStepContext_GetVariableAsString_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVariableAsString'
+type MockStepContext_GetVariableAsString_Call struct {
+	*mock.Call
+}
+
+// GetVariableAsString is a helper method to define mock.On call
+//   - key string
+func (_e *MockStepContext_Expecter) GetVariableAsString(key interface{}) *MockStepContext_GetVariableAsString_Call {
+	return &MockStepContext_GetVariableAsString_Call{Call: _e.mock.On("GetVariableAsString", key)}
+}
+
+func (_c *MockStepContext_GetVariableAsString_Call) Run(run func(key string)) *MockStepContext_GetVariableAsString_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStepContext_GetVariableAsString_Call) Return(s string, b bool) *MockStepContext_GetVariableAsString_Call {
 	_c.Call.Return(s, b)
 	return _c
 }
 
-func (_c *MockStepContext_GetVariable_Call) RunAndReturn(run func(key string) (string, bool)) *MockStepContext_GetVariable_Call {
+func (_c *MockStepContext_GetVariableAsString_Call) RunAndReturn(run func(key string) (string, bool)) *MockStepContext_GetVariableAsString_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IdempotencyKey provides a mock function for the type MockStepContext
+func (_mock *MockStepContext) IdempotencyKey() string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for IdempotencyKey")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func() string); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// MockStepContext_IdempotencyKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IdempotencyKey'
+type MockStepContext_IdempotencyKey_Call struct {
+	*mock.Call
+}
+
+// IdempotencyKey is a helper method to define mock.On call
+func (_e *MockStepContext_Expecter) IdempotencyKey() *MockStepContext_IdempotencyKey_Call {
+	return &MockStepContext_IdempotencyKey_Call{Call: _e.mock.On("IdempotencyKey")}
+}
+
+func (_c *MockStepContext_IdempotencyKey_Call) Run(run func()) *MockStepContext_IdempotencyKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockStepContext_IdempotencyKey_Call) Return(s string) *MockStepContext_IdempotencyKey_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *MockStepContext_IdempotencyKey_Call) RunAndReturn(run func() string) *MockStepContext_IdempotencyKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

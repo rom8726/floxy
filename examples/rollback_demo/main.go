@@ -136,7 +136,7 @@ func main() {
 	ctx := context.Background()
 
 	// Connect to database
-	pool, err := pgxpool.New(ctx, "postgres://user:password@localhost:5435/floxy?sslmode=disable")
+	pool, err := pgxpool.New(ctx, "postgres://floxy:password@localhost:5435/floxy?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

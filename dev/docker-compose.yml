@@ -6,12 +6,15 @@ services:
     container_name: floxy-pg
     restart: always
     environment:
-      POSTGRES_USER: user
+      POSTGRES_USER: floxy
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: floxy
+      POSTGRES_MULTIPLE_DATABASES: floxy
       PGDATA: /var/lib/postgresql/data/pgdata
+    command: -c config_file=/etc/postgresql.conf
     volumes:
       - "floxy_pg:/var/lib/postgresql/data/pgdata"
+      - "./postgres_initdb:/docker-entrypoint-initdb.d"
+      - "./postgresql.conf:/etc/postgresql.conf"
     ports:
       - "5435:5432"
 volumes:

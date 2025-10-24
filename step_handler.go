@@ -13,6 +13,7 @@ type StepHandler interface {
 type StepContext interface {
 	InstanceID() int64
 	StepName() string
+	IdempotencyKey() string
 	RetryCount() int
 	CloneData() map[string]any
 	GetVariable(key string) (any, bool)

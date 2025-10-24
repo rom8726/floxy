@@ -100,6 +100,7 @@ type WorkflowStep struct {
 	RetryCount             int             `json:"retry_count"`
 	MaxRetries             int             `json:"max_retries"`
 	CompensationRetryCount int             `json:"compensation_retry_count"`
+	IdempotencyKey         string          `json:"idempotency_key"`
 	StartedAt              *time.Time      `json:"started_at"`
 	CompletedAt            *time.Time      `json:"completed_at"`
 	CreatedAt              time.Time       `json:"created_at"`

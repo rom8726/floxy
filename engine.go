@@ -223,10 +223,11 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 	variables["reason"] = "compensation"
 
 	stepCtx := executionContext{
-		instanceID: step.InstanceID,
-		stepName:   step.StepName,
-		retryCount: step.CompensationRetryCount,
-		variables:  variables,
+		instanceID:     step.InstanceID,
+		stepName:       step.StepName,
+		idempotencyKey: step.IdempotencyKey,
+		retryCount:     step.CompensationRetryCount,
+		variables:      variables,
 	}
 
 	// Execute the compensation handler
@@ -301,10 +302,11 @@ func (engine *Engine) executeTask(
 	}
 
 	execCtx := &executionContext{
-		instanceID: instance.ID,
-		stepName:   step.StepName,
-		retryCount: step.RetryCount,
-		variables:  stepDef.Metadata,
+		instanceID:     instance.ID,
+		stepName:       step.StepName,
+		idempotencyKey: step.IdempotencyKey,
+		retryCount:     step.RetryCount,
+		variables:      stepDef.Metadata,
 	}
 
 	return handler.Execute(ctx, execCtx, step.Input)
@@ -448,9 +450,10 @@ func (engine *Engine) executeCondition(
 	_ = json.Unmarshal(step.Input, &inputData)
 
 	stepCtx := executionContext{
-		instanceID: step.InstanceID,
-		stepName:   step.StepName,
-		variables:  inputData,
+		instanceID:     step.InstanceID,
+		stepName:       step.StepName,
+		idempotencyKey: step.IdempotencyKey,
+		variables:      inputData,
 	}
 
 	result, err := evaluateCondition(stepDef.Condition, &stepCtx)

@@ -8,11 +8,12 @@ import (
 var _ StepContext = (*executionContext)(nil)
 
 type executionContext struct {
-	instanceID int64
-	stepName   string
-	retryCount int
-	variables  map[string]any
-	mu         sync.RWMutex
+	instanceID     int64
+	stepName       string
+	idempotencyKey string
+	retryCount     int
+	variables      map[string]any
+	mu             sync.RWMutex
 }
 
 func (c *executionContext) InstanceID() int64 {
@@ -21,6 +22,10 @@ func (c *executionContext) InstanceID() int64 {
 
 func (c *executionContext) StepName() string {
 	return c.stepName
+}
+
+func (c *executionContext) IdempotencyKey() string {
+	return c.idempotencyKey
 }
 
 func (c *executionContext) RetryCount() int {

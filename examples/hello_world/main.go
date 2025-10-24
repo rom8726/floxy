@@ -33,7 +33,7 @@ func (h *HelloHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, i
 	}
 
 	message := fmt.Sprintf("Hello, %s!", name)
-	log.Printf("Hello handler executed: %s", message)
+	log.Printf("Hello handler executed: %s. Idempotency key: %s", message, stepCtx.IdempotencyKey())
 
 	result := map[string]interface{}{
 		"message":   message,
@@ -45,7 +45,7 @@ func (h *HelloHandler) Execute(ctx context.Context, stepCtx floxy.StepContext, i
 
 func main() {
 	ctx := context.Background()
-	pool, err := pgxpool.New(context.Background(), "postgres://user:password@localhost:5435/floxy?sslmode=disable")
+	pool, err := pgxpool.New(context.Background(), "postgres://floxy:password@localhost:5435/floxy?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to create connection pool: %v", err)
 	}
