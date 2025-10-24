@@ -178,7 +178,7 @@ WHERE id = $1`
 	return err
 }
 
-func (store *StoreImpl) GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (store *StoreImpl) GetStepsByInstance(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -194,9 +194,9 @@ ORDER BY created_at`
 	}
 	defer rows.Close()
 
-	var steps []*WorkflowStep
+	steps := make([]WorkflowStep, 0)
 	for rows.Next() {
-		step := &WorkflowStep{}
+		step := WorkflowStep{}
 		err := rows.Scan(
 			&step.ID, &step.InstanceID, &step.StepName, &step.StepType,
 			&step.Status, &step.Input, &step.Output, &step.Error,
@@ -472,7 +472,7 @@ FROM workflows.workflow_instances`
 	return &stats, nil
 }
 
-func (store *StoreImpl) GetActiveInstances(ctx context.Context) ([]*ActiveWorkflowInstance, error) {
+func (store *StoreImpl) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -498,7 +498,7 @@ ORDER BY wi.created_at DESC`
 	}
 	defer rows.Close()
 
-	var instances []*ActiveWorkflowInstance
+	instances := make([]ActiveWorkflowInstance, 0)
 	for rows.Next() {
 		var instance ActiveWorkflowInstance
 		var currentStep *string
@@ -520,7 +520,7 @@ ORDER BY wi.created_at DESC`
 		if currentStep != nil {
 			instance.CurrentStep = *currentStep
 		}
-		instances = append(instances, &instance)
+		instances = append(instances, instance)
 	}
 
 	return instances, rows.Err()
@@ -540,7 +540,7 @@ ORDER BY name, version DESC`
 	}
 	defer rows.Close()
 
-	var definitions []WorkflowDefinition
+	definitions := make([]WorkflowDefinition, 0)
 	for rows.Next() {
 		var def WorkflowDefinition
 		var definitionBytes []byte
@@ -564,7 +564,7 @@ ORDER BY name, version DESC`
 	return definitions, rows.Err()
 }
 
-func (store *StoreImpl) GetWorkflowInstances(ctx context.Context, workflowID string) ([]*WorkflowInstance, error) {
+func (store *StoreImpl) GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -580,7 +580,7 @@ ORDER BY created_at DESC`
 	}
 	defer rows.Close()
 
-	var instances []*WorkflowInstance
+	instances := make([]WorkflowInstance, 0)
 	for rows.Next() {
 		var instance WorkflowInstance
 		err := rows.Scan(
@@ -598,13 +598,13 @@ ORDER BY created_at DESC`
 		if err != nil {
 			return nil, err
 		}
-		instances = append(instances, &instance)
+		instances = append(instances, instance)
 	}
 
 	return instances, rows.Err()
 }
 
-func (store *StoreImpl) GetAllWorkflowInstances(ctx context.Context) ([]*WorkflowInstance, error) {
+func (store *StoreImpl) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -619,7 +619,7 @@ ORDER BY created_at DESC`
 	}
 	defer rows.Close()
 
-	var instances []*WorkflowInstance
+	instances := make([]WorkflowInstance, 0)
 	for rows.Next() {
 		var instance WorkflowInstance
 		err := rows.Scan(
@@ -637,13 +637,13 @@ ORDER BY created_at DESC`
 		if err != nil {
 			return nil, err
 		}
-		instances = append(instances, &instance)
+		instances = append(instances, instance)
 	}
 
 	return instances, rows.Err()
 }
 
-func (store *StoreImpl) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error) {
+func (store *StoreImpl) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -660,7 +660,7 @@ ORDER BY created_at`
 	}
 	defer rows.Close()
 
-	var steps []*WorkflowStep
+	steps := make([]WorkflowStep, 0)
 	for rows.Next() {
 		var step WorkflowStep
 		err := rows.Scan(
@@ -682,13 +682,13 @@ ORDER BY created_at`
 		if err != nil {
 			return nil, err
 		}
-		steps = append(steps, &step)
+		steps = append(steps, step)
 	}
 
 	return steps, rows.Err()
 }
 
-func (store *StoreImpl) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]*WorkflowEvent, error) {
+func (store *StoreImpl) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -703,7 +703,7 @@ ORDER BY created_at`
 	}
 	defer rows.Close()
 
-	var events []*WorkflowEvent
+	events := make([]WorkflowEvent, 0)
 	for rows.Next() {
 		var event WorkflowEvent
 		err := rows.Scan(
@@ -717,10 +717,58 @@ ORDER BY created_at`
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, &event)
+		events = append(events, event)
 	}
 
 	return events, rows.Err()
+}
+
+func (store *StoreImpl) GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT 
+	name,
+	version,
+	total_instances,
+	completed,
+	failed,
+	running,
+	avg_duration_seconds
+FROM workflows.workflow_stats`
+
+	rows, err := executor.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make([]WorkflowStats, 0)
+	for rows.Next() {
+		var s WorkflowStats
+		var avgSeconds *float64
+
+		err := rows.Scan(
+			&s.WorkflowName,
+			&s.Version,
+			&s.TotalInstances,
+			&s.CompletedInstances,
+			&s.FailedInstances,
+			&s.RunningInstances,
+			&avgSeconds,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if avgSeconds != nil {
+			s.AverageDuration = time.Duration(*avgSeconds * float64(time.Second))
+		}
+
+		stats = append(stats, s)
+	}
+
+	return stats, rows.Err()
 }
 
 func (store *StoreImpl) getExecutor(ctx context.Context) Tx {

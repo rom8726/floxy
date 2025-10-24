@@ -30,7 +30,7 @@ type Store interface {
 		output json.RawMessage,
 		errMsg *string,
 	) error
-	GetStepsByInstance(ctx context.Context, instanceID int64) ([]*WorkflowStep, error)
+	GetStepsByInstance(ctx context.Context, instanceID int64) ([]WorkflowStep, error)
 	EnqueueStep(
 		ctx context.Context,
 		instanceID int64,
@@ -68,10 +68,11 @@ type Store interface {
 	) (bool, error)
 	GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error)
 	GetSummaryStats(ctx context.Context) (*SummaryStats, error)
-	GetActiveInstances(ctx context.Context) ([]*ActiveWorkflowInstance, error)
+	GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error)
 	GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error)
-	GetWorkflowInstances(ctx context.Context, workflowID string) ([]*WorkflowInstance, error)
-	GetAllWorkflowInstances(ctx context.Context) ([]*WorkflowInstance, error)
-	GetWorkflowSteps(ctx context.Context, instanceID int64) ([]*WorkflowStep, error)
-	GetWorkflowEvents(ctx context.Context, instanceID int64) ([]*WorkflowEvent, error)
+	GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error)
+	GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error)
+	GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error)
+	GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error)
+	GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error)
 }
