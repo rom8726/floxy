@@ -736,6 +736,52 @@ ORDER BY created_at DESC`
 	return steps, rows.Err()
 }
 
+func (store *StoreImpl) CreateCancelRequest(ctx context.Context, req *WorkflowCancelRequest) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+INSERT INTO workflows.workflow_cancel_requests (instance_id, requested_by, cancel_type, reason, created_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (instance_id) DO NOTHING
+RETURNING id, created_at`
+
+	return executor.QueryRow(ctx, query,
+		req.InstanceID, req.RequestedBy, req.CancelType, req.Reason, time.Now(),
+	).Scan(&req.ID, &req.CreatedAt)
+}
+
+func (store *StoreImpl) GetCancelRequest(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, requested_by, cancel_type, reason, created_at
+FROM workflows.workflow_cancel_requests
+WHERE instance_id = $1`
+
+	var req WorkflowCancelRequest
+	err := executor.QueryRow(ctx, query, instanceID).Scan(
+		&req.ID, &req.InstanceID, &req.RequestedBy, &req.CancelType, &req.Reason, &req.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
+		return nil, err
+	}
+
+	return &req, nil
+}
+
+func (store *StoreImpl) DeleteCancelRequest(ctx context.Context, instanceID int64) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `DELETE FROM workflows.workflow_cancel_requests WHERE instance_id = $1`
+	_, err := executor.Exec(ctx, query, instanceID)
+
+	return err
+}
+
 func (store *StoreImpl) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
 	executor := store.getExecutor(ctx)
 

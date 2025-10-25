@@ -59,6 +59,13 @@ const (
 	HumanDecisionRejected  HumanDecision = "rejected"
 )
 
+type CancelType string
+
+const (
+	CancelTypeCancel CancelType = "cancel"
+	CancelTypeAbort  CancelType = "abort"
+)
+
 type WorkflowDefinition struct {
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
@@ -139,6 +146,15 @@ type WorkflowEvent struct {
 	EventType  string          `json:"event_type"`
 	Payload    json.RawMessage `json:"payload"`
 	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type WorkflowCancelRequest struct {
+	ID          int64      `json:"id"`
+	InstanceID  int64      `json:"instance_id"`
+	RequestedBy string     `json:"requested_by"`
+	CancelType  CancelType `json:"cancel_type"`
+	Reason      *string    `json:"reason"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type JoinState struct {

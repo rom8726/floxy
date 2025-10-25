@@ -7,21 +7,43 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	defaultCancelWorkerInterval = 100 * time.Millisecond
 )
 
 type Engine struct {
-	txManager TxManager
-	store     Store
-	handlers  map[string]StepHandler
-	mu        sync.RWMutex
+	txManager            TxManager
+	store                Store
+	handlers             map[string]StepHandler
+	mu                   sync.RWMutex
+	cancelContexts       map[int64]context.CancelFunc // instanceID -> cancel function
+	cancelMu             sync.RWMutex
+	cancelWorkerInterval time.Duration
+	shutdownCh           chan struct{}
+	shutdownOnce         sync.Once
 }
 
-func NewEngine(txManager TxManager, store Store) *Engine {
-	return &Engine{
-		txManager: txManager,
-		store:     store,
-		handlers:  make(map[string]StepHandler),
+func NewEngine(pool *pgxpool.Pool, store Store, opts ...EngineOption) *Engine {
+	engine := &Engine{
+		txManager:            NewTxManager(pool),
+		store:                store,
+		handlers:             make(map[string]StepHandler),
+		cancelContexts:       make(map[int64]context.CancelFunc),
+		shutdownCh:           make(chan struct{}),
+		cancelWorkerInterval: defaultCancelWorkerInterval,
 	}
+
+	for _, opt := range opts {
+		opt(engine)
+	}
+
+	go engine.cancelRequestsWorker()
+
+	return engine
 }
 
 func (engine *Engine) RegisterHandler(handler StepHandler) {
@@ -78,6 +100,12 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 	}
 
 	return instanceID, nil
+}
+
+func (engine *Engine) Shutdown() {
+	engine.shutdownOnce.Do(func() {
+		close(engine.shutdownCh)
+	})
 }
 
 func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty bool, err error) {
@@ -231,65 +259,21 @@ func (engine *Engine) CancelWorkflow(ctx context.Context, instanceID int64, requ
 			return fmt.Errorf("workflow %d is already in terminal state: %s", instanceID, instance.Status)
 		}
 
+		req := &WorkflowCancelRequest{
+			InstanceID:  instanceID,
+			RequestedBy: requestedBy,
+			CancelType:  CancelTypeCancel,
+			Reason:      &reason,
+		}
+
+		if err := engine.store.CreateCancelRequest(ctx, req); err != nil {
+			return fmt.Errorf("create cancel request: %w", err)
+		}
+
 		_ = engine.store.LogEvent(ctx, instanceID, nil, EventCancellationStarted, map[string]any{
 			KeyRequestedBy: requestedBy,
 			KeyReason:      reason,
-		})
-
-		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusCancelling, nil, nil); err != nil {
-			return fmt.Errorf("update instance status to cancelling: %w", err)
-		}
-
-		if err := engine.stopActiveSteps(ctx, instanceID); err != nil {
-			return fmt.Errorf("stop active steps: %w", err)
-		}
-
-		def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-		if err != nil {
-			return fmt.Errorf("get workflow definition: %w", err)
-		}
-
-		steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-		if err != nil {
-			return fmt.Errorf("get steps: %w", err)
-		}
-
-		stepMap := make(map[string]*WorkflowStep)
-		for _, step := range steps {
-			step := step
-			stepMap[step.StepName] = &step
-		}
-
-		var lastCompletedStep *WorkflowStep
-		for i := len(steps) - 1; i >= 0; i-- {
-			if steps[i].Status == StepStatusCompleted {
-				lastCompletedStep = &steps[i]
-
-				break
-			}
-		}
-
-		if lastCompletedStep != nil {
-			if err := engine.rollbackStepChain(ctx, lastCompletedStep.StepName, rootStepName, def, stepMap, false); err != nil {
-				_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowCancelled, map[string]any{
-					KeyRequestedBy: requestedBy,
-					KeyReason:      reason,
-					KeyError:       fmt.Sprintf("rollback failed: %v", err),
-				})
-
-				errMsg := fmt.Sprintf("cancellation rollback failed: %v", err)
-
-				return engine.store.UpdateInstanceStatus(ctx, instanceID, StatusFailed, nil, &errMsg)
-			}
-		}
-
-		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusCancelled, nil, nil); err != nil {
-			return fmt.Errorf("update instance status to cancelled: %w", err)
-		}
-
-		_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowCancelled, map[string]any{
-			KeyRequestedBy: requestedBy,
-			KeyReason:      reason,
+			KeyCancelType:  CancelTypeCancel,
 		})
 
 		return nil
@@ -310,27 +294,79 @@ func (engine *Engine) AbortWorkflow(ctx context.Context, instanceID int64, reque
 			return fmt.Errorf("workflow %d is already in terminal state: %s", instanceID, instance.Status)
 		}
 
+		req := &WorkflowCancelRequest{
+			InstanceID:  instanceID,
+			RequestedBy: requestedBy,
+			CancelType:  CancelTypeAbort,
+			Reason:      &reason,
+		}
+
+		if err := engine.store.CreateCancelRequest(ctx, req); err != nil {
+			return fmt.Errorf("create cancel request: %w", err)
+		}
+
 		_ = engine.store.LogEvent(ctx, instanceID, nil, EventAbortStarted, map[string]any{
 			KeyRequestedBy: requestedBy,
 			KeyReason:      reason,
-		})
-
-		if err := engine.stopActiveSteps(ctx, instanceID); err != nil {
-			return fmt.Errorf("stop active steps: %w", err)
-		}
-
-		abortMsg := fmt.Sprintf("Aborted by %s: %s", requestedBy, reason)
-		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusAborted, nil, &abortMsg); err != nil {
-			return fmt.Errorf("update instance status to aborted: %w", err)
-		}
-
-		_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowAborted, map[string]any{
-			KeyRequestedBy: requestedBy,
-			KeyReason:      reason,
+			KeyCancelType:  CancelTypeAbort,
 		})
 
 		return nil
 	})
+}
+
+func (engine *Engine) cancelRequestsWorker() {
+	ticker := time.NewTicker(engine.cancelWorkerInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-engine.shutdownCh:
+			return
+		case <-ticker.C:
+			engine.processCancelRequests()
+		}
+	}
+}
+
+func (engine *Engine) processCancelRequests() {
+	engine.cancelMu.RLock()
+	instanceIDs := make([]int64, 0, len(engine.cancelContexts))
+	for instanceID := range engine.cancelContexts {
+		instanceIDs = append(instanceIDs, instanceID)
+	}
+	engine.cancelMu.RUnlock()
+
+	for _, instanceID := range instanceIDs {
+		ctx := context.Background()
+		_, err := engine.store.GetCancelRequest(ctx, instanceID)
+		if err != nil {
+			if !errors.Is(err, ErrEntityNotFound) {
+				// TODO: log error
+			}
+
+			continue
+		}
+
+		engine.cancelMu.Lock()
+		if cancelFunc, exists := engine.cancelContexts[instanceID]; exists {
+			cancelFunc()
+			delete(engine.cancelContexts, instanceID)
+		}
+		engine.cancelMu.Unlock()
+	}
+}
+
+func (engine *Engine) registerInstanceContext(instanceID int64, cancel context.CancelFunc) {
+	engine.cancelMu.Lock()
+	defer engine.cancelMu.Unlock()
+	engine.cancelContexts[instanceID] = cancel
+}
+
+func (engine *Engine) unregisterInstanceContext(instanceID int64) {
+	engine.cancelMu.Lock()
+	defer engine.cancelMu.Unlock()
+	delete(engine.cancelContexts, instanceID)
 }
 
 func (engine *Engine) stopActiveSteps(ctx context.Context, instanceID int64) error {
@@ -365,10 +401,21 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
+	handlerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	engine.registerInstanceContext(instance.ID, cancel)
+	defer engine.unregisterInstanceContext(instance.ID)
+
+	cancelReq, err := engine.store.GetCancelRequest(ctx, instance.ID)
+	if err == nil && cancelReq != nil {
+		return engine.handleCancellation(ctx, instance, step, cancelReq)
+	}
+
 	if stepDef.Timeout != 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, stepDef.Timeout)
-		defer cancel()
+		var timeoutCancel context.CancelFunc
+		handlerCtx, timeoutCancel = context.WithTimeout(handlerCtx, stepDef.Timeout)
+		defer timeoutCancel()
 	}
 
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRunning, nil, nil); err != nil {
@@ -386,20 +433,20 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 
 	switch stepDef.Type {
 	case StepTypeTask:
-		output, stepErr = engine.executeTask(ctx, instance, step, stepDef)
+		output, stepErr = engine.executeTask(handlerCtx, instance, step, stepDef)
 	case StepTypeFork:
-		output, stepErr = engine.executeFork(ctx, instance, step, stepDef)
+		output, stepErr = engine.executeFork(handlerCtx, instance, step, stepDef)
 	case StepTypeJoin:
-		output, stepErr = engine.executeJoin(ctx, instance, step, stepDef)
+		output, stepErr = engine.executeJoin(handlerCtx, instance, step, stepDef)
 	case StepTypeParallel:
-		output, stepErr = engine.executeFork(ctx, instance, step, stepDef)
+		output, stepErr = engine.executeFork(handlerCtx, instance, step, stepDef)
 	case StepTypeSavePoint:
 		output = step.Input
 	case StepTypeCondition:
-		output, next, stepErr = engine.executeCondition(ctx, instance, step, stepDef)
+		output, next, stepErr = engine.executeCondition(handlerCtx, instance, step, stepDef)
 	case StepTypeHuman:
 		var aborted bool
-		output, aborted, stepErr = engine.executeHuman(ctx, instance, step, stepDef)
+		output, aborted, stepErr = engine.executeHuman(handlerCtx, instance, step, stepDef)
 		if stepErr == nil && aborted {
 			return nil
 		}
@@ -407,11 +454,108 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		stepErr = fmt.Errorf("unsupported step type: %s", stepDef.Type)
 	}
 
+	if errors.Is(handlerCtx.Err(), context.Canceled) {
+		cancelReq, err = engine.store.GetCancelRequest(ctx, instance.ID)
+		if err == nil && cancelReq != nil {
+			return engine.handleCancellation(ctx, instance, step, cancelReq)
+		}
+	}
+
 	if stepErr != nil {
 		return engine.handleStepFailure(ctx, instance, step, stepDef, stepErr)
 	}
 
 	return engine.handleStepSuccess(ctx, instance, step, stepDef, output, next)
+}
+
+func (engine *Engine) handleCancellation(
+	ctx context.Context,
+	instance *WorkflowInstance,
+	step *WorkflowStep,
+	req *WorkflowCancelRequest,
+) error {
+	if err := engine.stopActiveSteps(ctx, instance.ID); err != nil {
+		return fmt.Errorf("stop active steps: %w", err)
+	}
+
+	reason := ""
+	if req.Reason != nil {
+		reason = *req.Reason
+	}
+
+	if req.CancelType == CancelTypeCancel {
+		err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusCancelling, nil, nil)
+		if err != nil {
+			return fmt.Errorf("update instance status to cancelling: %w", err)
+		}
+
+		def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
+
+		steps, err := engine.store.GetStepsByInstance(ctx, instance.ID)
+		if err != nil {
+			return fmt.Errorf("get steps: %w", err)
+		}
+
+		stepMap := make(map[string]*WorkflowStep)
+		for _, step := range steps {
+			step := step
+			stepMap[step.StepName] = &step
+		}
+
+		var lastCompletedStep *WorkflowStep
+		for i := len(steps) - 1; i >= 0; i-- {
+			if steps[i].Status == StepStatusCompleted {
+				lastCompletedStep = &steps[i]
+
+				break
+			}
+		}
+
+		if lastCompletedStep != nil {
+			err := engine.rollbackStepChain(ctx, lastCompletedStep.StepName, rootStepName, def, stepMap, false)
+			if err != nil {
+				_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventWorkflowCancelled, map[string]any{
+					KeyRequestedBy: req.RequestedBy,
+					KeyReason:      reason,
+					KeyError:       fmt.Sprintf("rollback failed: %v", err),
+				})
+
+				errMsg := fmt.Sprintf("cancellation rollback failed: %v", err)
+				_ = engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg)
+				_ = engine.store.DeleteCancelRequest(ctx, instance.ID)
+
+				return fmt.Errorf("rollback failed: %w", err)
+			}
+		}
+
+		cancelMsg := fmt.Sprintf("Cancelled by %s: %s", req.RequestedBy, reason)
+		err = engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusCancelled, nil, &cancelMsg)
+		if err != nil {
+			return fmt.Errorf("update instance status to cancelled: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventWorkflowCancelled, map[string]any{
+			KeyRequestedBy: req.RequestedBy,
+			KeyReason:      reason,
+		})
+	} else {
+		abortMsg := fmt.Sprintf("Aborted by %s: %s", req.RequestedBy, reason)
+		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusAborted, nil, &abortMsg); err != nil {
+			return fmt.Errorf("update instance status to aborted: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventWorkflowAborted, map[string]any{
+			KeyRequestedBy: req.RequestedBy,
+			KeyReason:      reason,
+		})
+	}
+
+	_ = engine.store.DeleteCancelRequest(ctx, instance.ID)
+
+	return nil
 }
 
 func (engine *Engine) executeCompensationStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {

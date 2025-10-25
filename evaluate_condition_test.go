@@ -245,7 +245,8 @@ func TestEvaluateConditionWithRealWorkflow(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	engine.RegisterHandler(&ConditionTestHandler{})
 

@@ -886,6 +886,63 @@ func (_m *MockStore) EXPECT() *MockStore_Expecter {
 	return &MockStore_Expecter{mock: &_m.Mock}
 }
 
+// CreateCancelRequest provides a mock function for the type MockStore
+func (_mock *MockStore) CreateCancelRequest(ctx context.Context, req *WorkflowCancelRequest) error {
+	ret := _mock.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateCancelRequest")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowCancelRequest) error); ok {
+		r0 = returnFunc(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_CreateCancelRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateCancelRequest'
+type MockStore_CreateCancelRequest_Call struct {
+	*mock.Call
+}
+
+// CreateCancelRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *WorkflowCancelRequest
+func (_e *MockStore_Expecter) CreateCancelRequest(ctx interface{}, req interface{}) *MockStore_CreateCancelRequest_Call {
+	return &MockStore_CreateCancelRequest_Call{Call: _e.mock.On("CreateCancelRequest", ctx, req)}
+}
+
+func (_c *MockStore_CreateCancelRequest_Call) Run(run func(ctx context.Context, req *WorkflowCancelRequest)) *MockStore_CreateCancelRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *WorkflowCancelRequest
+		if args[1] != nil {
+			arg1 = args[1].(*WorkflowCancelRequest)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_CreateCancelRequest_Call) Return(err error) *MockStore_CreateCancelRequest_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_CreateCancelRequest_Call) RunAndReturn(run func(ctx context.Context, req *WorkflowCancelRequest) error) *MockStore_CreateCancelRequest_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateHumanDecision provides a mock function for the type MockStore
 func (_mock *MockStore) CreateHumanDecision(ctx context.Context, decision *HumanDecisionRecord) error {
 	ret := _mock.Called(ctx, decision)
@@ -1145,6 +1202,63 @@ func (_c *MockStore_CreateStep_Call) Return(err error) *MockStore_CreateStep_Cal
 }
 
 func (_c *MockStore_CreateStep_Call) RunAndReturn(run func(ctx context.Context, step *WorkflowStep) error) *MockStore_CreateStep_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteCancelRequest provides a mock function for the type MockStore
+func (_mock *MockStore) DeleteCancelRequest(ctx context.Context, instanceID int64) error {
+	ret := _mock.Called(ctx, instanceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteCancelRequest")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) error); ok {
+		r0 = returnFunc(ctx, instanceID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_DeleteCancelRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteCancelRequest'
+type MockStore_DeleteCancelRequest_Call struct {
+	*mock.Call
+}
+
+// DeleteCancelRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+func (_e *MockStore_Expecter) DeleteCancelRequest(ctx interface{}, instanceID interface{}) *MockStore_DeleteCancelRequest_Call {
+	return &MockStore_DeleteCancelRequest_Call{Call: _e.mock.On("DeleteCancelRequest", ctx, instanceID)}
+}
+
+func (_c *MockStore_DeleteCancelRequest_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_DeleteCancelRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_DeleteCancelRequest_Call) Return(err error) *MockStore_DeleteCancelRequest_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_DeleteCancelRequest_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) error) *MockStore_DeleteCancelRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1480,6 +1594,74 @@ func (_c *MockStore_GetAllWorkflowInstances_Call) Return(workflowInstances []Wor
 }
 
 func (_c *MockStore_GetAllWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context) ([]WorkflowInstance, error)) *MockStore_GetAllWorkflowInstances_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetCancelRequest provides a mock function for the type MockStore
+func (_mock *MockStore) GetCancelRequest(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error) {
+	ret := _mock.Called(ctx, instanceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCancelRequest")
+	}
+
+	var r0 *WorkflowCancelRequest
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) (*WorkflowCancelRequest, error)); ok {
+		return returnFunc(ctx, instanceID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) *WorkflowCancelRequest); ok {
+		r0 = returnFunc(ctx, instanceID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*WorkflowCancelRequest)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = returnFunc(ctx, instanceID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetCancelRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCancelRequest'
+type MockStore_GetCancelRequest_Call struct {
+	*mock.Call
+}
+
+// GetCancelRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+func (_e *MockStore_Expecter) GetCancelRequest(ctx interface{}, instanceID interface{}) *MockStore_GetCancelRequest_Call {
+	return &MockStore_GetCancelRequest_Call{Call: _e.mock.On("GetCancelRequest", ctx, instanceID)}
+}
+
+func (_c *MockStore_GetCancelRequest_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_GetCancelRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetCancelRequest_Call) Return(workflowCancelRequest *WorkflowCancelRequest, err error) *MockStore_GetCancelRequest_Call {
+	_c.Call.Return(workflowCancelRequest, err)
+	return _c
+}
+
+func (_c *MockStore_GetCancelRequest_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error)) *MockStore_GetCancelRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

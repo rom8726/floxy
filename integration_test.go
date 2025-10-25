@@ -68,7 +68,8 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&DataExtractorHandler{})
@@ -150,7 +151,8 @@ func TestIntegration_Ecommerce(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&PaymentHandler{})
@@ -229,7 +231,8 @@ func TestIntegration_Microservices(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&UserServiceHandler{})
@@ -326,7 +329,8 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&PaymentHandler{})
@@ -415,7 +419,8 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&PaymentHandler{})
@@ -522,7 +527,8 @@ func TestIntegration_Condition__true(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&DataExtractorHandler{})
@@ -594,7 +600,8 @@ func TestIntegration_Condition__false(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&DataExtractorHandler{})
@@ -666,7 +673,8 @@ func TestIntegration_Condition_Logic(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&TestConditionHandler{})

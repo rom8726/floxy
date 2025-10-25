@@ -335,8 +335,8 @@ func main() {
 	defer pool.Close()
 
 	store := floxy.NewStore(pool)
-	txManager := floxy.NewTxManager(pool)
-	engine := floxy.NewEngine(txManager, store)
+	engine := floxy.NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Run migrations
 	if err := floxy.RunMigrations(ctx, pool); err != nil {
