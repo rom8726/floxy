@@ -30,7 +30,7 @@ services:
       DB_PASSWORD: password
       NODE_ENV: production
     ports:
-      - "3002:3002"
+      - "3001:3001"
     depends_on:
       - floxy-pg
 
