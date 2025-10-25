@@ -172,3 +172,14 @@ type ActiveWorkflowInstance struct {
 	CompletedSteps  int       `json:"completed_steps"`
 	RolledBackSteps int       `json:"rolled_back_steps"`
 }
+
+type HumanDecisionRecord struct {
+	ID         int64         `json:"id"`
+	InstanceID int64         `json:"instance_id"`
+	StepID     int64         `json:"step_id"`
+	DecidedBy  string        `json:"decided_by"`
+	Decision   HumanDecision `json:"decision"`
+	Comment    *string       `json:"comment"`
+	DecidedAt  time.Time     `json:"decided_at"`
+	CreatedAt  time.Time     `json:"created_at"`
+}

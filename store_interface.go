@@ -75,4 +75,10 @@ type Store interface {
 	GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error)
 	GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error)
 	GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error)
+
+	// Human decision methods
+	CreateHumanDecision(ctx context.Context, decision *HumanDecisionRecord) error
+	GetHumanDecision(ctx context.Context, stepID int64) (*HumanDecisionRecord, error)
+	UpdateStepStatus(ctx context.Context, stepID int64, status StepStatus) error
+	GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error)
 }

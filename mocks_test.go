@@ -646,6 +646,63 @@ func (_m *MockStore) EXPECT() *MockStore_Expecter {
 	return &MockStore_Expecter{mock: &_m.Mock}
 }
 
+// CreateHumanDecision provides a mock function for the type MockStore
+func (_mock *MockStore) CreateHumanDecision(ctx context.Context, decision *HumanDecisionRecord) error {
+	ret := _mock.Called(ctx, decision)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateHumanDecision")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *HumanDecisionRecord) error); ok {
+		r0 = returnFunc(ctx, decision)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_CreateHumanDecision_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateHumanDecision'
+type MockStore_CreateHumanDecision_Call struct {
+	*mock.Call
+}
+
+// CreateHumanDecision is a helper method to define mock.On call
+//   - ctx context.Context
+//   - decision *HumanDecisionRecord
+func (_e *MockStore_Expecter) CreateHumanDecision(ctx interface{}, decision interface{}) *MockStore_CreateHumanDecision_Call {
+	return &MockStore_CreateHumanDecision_Call{Call: _e.mock.On("CreateHumanDecision", ctx, decision)}
+}
+
+func (_c *MockStore_CreateHumanDecision_Call) Run(run func(ctx context.Context, decision *HumanDecisionRecord)) *MockStore_CreateHumanDecision_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *HumanDecisionRecord
+		if args[1] != nil {
+			arg1 = args[1].(*HumanDecisionRecord)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_CreateHumanDecision_Call) Return(err error) *MockStore_CreateHumanDecision_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_CreateHumanDecision_Call) RunAndReturn(run func(ctx context.Context, decision *HumanDecisionRecord) error) *MockStore_CreateHumanDecision_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateInstance provides a mock function for the type MockStore
 func (_mock *MockStore) CreateInstance(ctx context.Context, workflowID string, input json.RawMessage) (*WorkflowInstance, error) {
 	ret := _mock.Called(ctx, workflowID, input)
@@ -1119,6 +1176,74 @@ func (_c *MockStore_GetAllWorkflowInstances_Call) RunAndReturn(run func(ctx cont
 	return _c
 }
 
+// GetHumanDecision provides a mock function for the type MockStore
+func (_mock *MockStore) GetHumanDecision(ctx context.Context, stepID int64) (*HumanDecisionRecord, error) {
+	ret := _mock.Called(ctx, stepID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetHumanDecision")
+	}
+
+	var r0 *HumanDecisionRecord
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) (*HumanDecisionRecord, error)); ok {
+		return returnFunc(ctx, stepID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) *HumanDecisionRecord); ok {
+		r0 = returnFunc(ctx, stepID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*HumanDecisionRecord)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = returnFunc(ctx, stepID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetHumanDecision_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetHumanDecision'
+type MockStore_GetHumanDecision_Call struct {
+	*mock.Call
+}
+
+// GetHumanDecision is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stepID int64
+func (_e *MockStore_Expecter) GetHumanDecision(ctx interface{}, stepID interface{}) *MockStore_GetHumanDecision_Call {
+	return &MockStore_GetHumanDecision_Call{Call: _e.mock.On("GetHumanDecision", ctx, stepID)}
+}
+
+func (_c *MockStore_GetHumanDecision_Call) Run(run func(ctx context.Context, stepID int64)) *MockStore_GetHumanDecision_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetHumanDecision_Call) Return(humanDecisionRecord *HumanDecisionRecord, err error) *MockStore_GetHumanDecision_Call {
+	_c.Call.Return(humanDecisionRecord, err)
+	return _c
+}
+
+func (_c *MockStore_GetHumanDecision_Call) RunAndReturn(run func(ctx context.Context, stepID int64) (*HumanDecisionRecord, error)) *MockStore_GetHumanDecision_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetInstance provides a mock function for the type MockStore
 func (_mock *MockStore) GetInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
 	ret := _mock.Called(ctx, instanceID)
@@ -1257,6 +1382,74 @@ func (_c *MockStore_GetJoinState_Call) Return(joinState *JoinState, err error) *
 }
 
 func (_c *MockStore_GetJoinState_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error)) *MockStore_GetJoinState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetStepByID provides a mock function for the type MockStore
+func (_mock *MockStore) GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error) {
+	ret := _mock.Called(ctx, stepID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetStepByID")
+	}
+
+	var r0 *WorkflowStep
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) (*WorkflowStep, error)); ok {
+		return returnFunc(ctx, stepID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) *WorkflowStep); ok {
+		r0 = returnFunc(ctx, stepID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*WorkflowStep)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = returnFunc(ctx, stepID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetStepByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStepByID'
+type MockStore_GetStepByID_Call struct {
+	*mock.Call
+}
+
+// GetStepByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stepID int64
+func (_e *MockStore_Expecter) GetStepByID(ctx interface{}, stepID interface{}) *MockStore_GetStepByID_Call {
+	return &MockStore_GetStepByID_Call{Call: _e.mock.On("GetStepByID", ctx, stepID)}
+}
+
+func (_c *MockStore_GetStepByID_Call) Run(run func(ctx context.Context, stepID int64)) *MockStore_GetStepByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetStepByID_Call) Return(workflowStep *WorkflowStep, err error) *MockStore_GetStepByID_Call {
+	_c.Call.Return(workflowStep, err)
+	return _c
+}
+
+func (_c *MockStore_GetStepByID_Call) RunAndReturn(run func(ctx context.Context, stepID int64) (*WorkflowStep, error)) *MockStore_GetStepByID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2275,6 +2468,69 @@ func (_c *MockStore_UpdateStepCompensationRetry_Call) Return(err error) *MockSto
 }
 
 func (_c *MockStore_UpdateStepCompensationRetry_Call) RunAndReturn(run func(ctx context.Context, stepID int64, retryCount int, status StepStatus) error) *MockStore_UpdateStepCompensationRetry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateStepStatus provides a mock function for the type MockStore
+func (_mock *MockStore) UpdateStepStatus(ctx context.Context, stepID int64, status StepStatus) error {
+	ret := _mock.Called(ctx, stepID, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStepStatus")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, StepStatus) error); ok {
+		r0 = returnFunc(ctx, stepID, status)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_UpdateStepStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStepStatus'
+type MockStore_UpdateStepStatus_Call struct {
+	*mock.Call
+}
+
+// UpdateStepStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stepID int64
+//   - status StepStatus
+func (_e *MockStore_Expecter) UpdateStepStatus(ctx interface{}, stepID interface{}, status interface{}) *MockStore_UpdateStepStatus_Call {
+	return &MockStore_UpdateStepStatus_Call{Call: _e.mock.On("UpdateStepStatus", ctx, stepID, status)}
+}
+
+func (_c *MockStore_UpdateStepStatus_Call) Run(run func(ctx context.Context, stepID int64, status StepStatus)) *MockStore_UpdateStepStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 StepStatus
+		if args[2] != nil {
+			arg2 = args[2].(StepStatus)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_UpdateStepStatus_Call) Return(err error) *MockStore_UpdateStepStatus_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_UpdateStepStatus_Call) RunAndReturn(run func(ctx context.Context, stepID int64, status StepStatus) error) *MockStore_UpdateStepStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

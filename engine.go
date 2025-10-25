@@ -2,10 +2,12 @@ package floxy
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type Engine struct {
@@ -141,6 +143,86 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 	return empty, nil
 }
 
+// MakeHumanDecision accepts human decision for human-in-the-loop step
+func (engine *Engine) MakeHumanDecision(
+	ctx context.Context,
+	stepID int64,
+	decidedBy string,
+	decision HumanDecision,
+	comment *string,
+) error {
+	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		// Get step information
+		step, err := engine.store.GetStepByID(ctx, stepID)
+		if err != nil {
+			return fmt.Errorf("get step: %w", err)
+		}
+
+		if step.StepType != StepTypeHuman {
+			return fmt.Errorf("step %d is not a human step", stepID)
+		}
+
+		if step.Status != StepStatusWaitingDecision {
+			return fmt.Errorf("step %d is not waiting for decision (current status: %s)", stepID, step.Status)
+		}
+
+		// Create decision record
+		decisionRecord := &HumanDecisionRecord{
+			InstanceID: step.InstanceID,
+			StepID:     stepID,
+			DecidedBy:  decidedBy,
+			Decision:   decision,
+			Comment:    comment,
+			DecidedAt:  time.Now(),
+		}
+
+		if err := engine.store.CreateHumanDecision(ctx, decisionRecord); err != nil {
+			return fmt.Errorf("create human decision: %w", err)
+		}
+
+		// Update step status
+		var newStatus StepStatus
+		switch decision {
+		case HumanDecisionConfirmed:
+			newStatus = StepStatusConfirmed
+		case HumanDecisionRejected:
+			newStatus = StepStatusRejected
+		}
+
+		if err := engine.store.UpdateStepStatus(ctx, stepID, newStatus); err != nil {
+			return fmt.Errorf("update step status: %w", err)
+		}
+
+		// Log event
+		_ = engine.store.LogEvent(ctx, step.InstanceID, &stepID, EventStepCompleted, map[string]any{
+			KeyStepName:  step.StepName,
+			KeyDecision:  decision,
+			KeyDecidedBy: decidedBy,
+		})
+
+		// If decision is confirmed, continue workflow execution
+		if decision == HumanDecisionConfirmed {
+			// Set workflow to running status if it was paused
+			instance, err := engine.store.GetInstance(ctx, step.InstanceID)
+			if err != nil {
+				return fmt.Errorf("get instance: %w", err)
+			}
+
+			if instance.Status == StatusPending {
+				if err := engine.store.UpdateInstanceStatus(ctx, step.InstanceID, StatusRunning, nil, nil); err != nil {
+					return fmt.Errorf("update instance status: %w", err)
+				}
+			}
+
+			// Continue execution of next steps
+			return engine.continueWorkflowAfterHumanDecision(ctx, instance, step)
+		} else {
+			// If decision is rejected, stop workflow
+			return engine.store.UpdateInstanceStatus(ctx, step.InstanceID, StatusAborted, nil, nil)
+		}
+	})
+}
+
 func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err != nil {
@@ -177,7 +259,13 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	case StepTypeSavePoint:
 		output = step.Input
 	case StepTypeCondition:
-		output, next, err = engine.executeCondition(ctx, instance, step, stepDef)
+		output, next, stepErr = engine.executeCondition(ctx, instance, step, stepDef)
+	case StepTypeHuman:
+		var aborted bool
+		output, aborted, stepErr = engine.executeHuman(ctx, instance, step, stepDef)
+		if stepErr == nil && aborted {
+			return nil
+		}
 	default:
 		stepErr = fmt.Errorf("unsupported step type: %s", stepDef.Type)
 	}
@@ -476,6 +564,143 @@ func (engine *Engine) executeCondition(
 	return step.Input, result, nil
 }
 
+func (engine *Engine) executeHuman(
+	ctx context.Context,
+	instance *WorkflowInstance,
+	step *WorkflowStep,
+	stepDef *StepDefinition,
+) (json.RawMessage, bool, error) {
+	// Check if there's already a decision for this step
+	decision, err := engine.store.GetHumanDecision(ctx, step.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, fmt.Errorf("get human decision: %w", err)
+	}
+
+	if decision != nil {
+		// Decision already made, process it
+		return engine.processHumanDecision(ctx, instance, step, decision)
+	}
+
+	// No decision yet, set step to waiting state
+	step.Status = StepStatusWaitingDecision
+	if err := engine.store.UpdateStepStatus(ctx, step.ID, StepStatusWaitingDecision); err != nil {
+		return nil, false, fmt.Errorf("update step status to waiting_decision: %w", err)
+	}
+
+	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, time.Second); err != nil {
+		return nil, false, fmt.Errorf("enqueue step: %w", err)
+	}
+
+	_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepStarted, map[string]any{
+		KeyStepName: step.StepName,
+		KeyStepType: stepDef.Type,
+		KeyReason:   "waiting_for_human_decision",
+	})
+
+	// Parse input data and add waiting status
+	var inputData map[string]any
+	if err := json.Unmarshal(step.Input, &inputData); err != nil {
+		// If input is not valid JSON, create empty map
+		inputData = make(map[string]any)
+	}
+
+	// Add waiting status to the data
+	inputData["status"] = "waiting_decision"
+	inputData["message"] = "Step is waiting for human decision"
+
+	// Encode back to JSON
+	output, err := json.Marshal(inputData)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal output: %w", err)
+	}
+
+	return output, false, nil
+}
+
+func (engine *Engine) processHumanDecision(
+	ctx context.Context,
+	instance *WorkflowInstance,
+	step *WorkflowStep,
+	decision *HumanDecisionRecord,
+) (json.RawMessage, bool, error) {
+	// Update step status based on decision
+	var newStatus StepStatus
+
+	switch decision.Decision {
+	case HumanDecisionConfirmed:
+		newStatus = StepStatusConfirmed
+
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+			KeyStepName:  step.StepName,
+			KeyDecision:  decision.Decision,
+			KeyDecidedBy: decision.DecidedBy,
+		})
+
+	case HumanDecisionRejected:
+		newStatus = StepStatusRejected
+
+		errMsg := "Step was rejected by human"
+		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusAborted, nil, &errMsg); err != nil {
+			return nil, false, fmt.Errorf("update instance status: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName:  step.StepName,
+			KeyDecision:  decision.Decision,
+			KeyDecidedBy: decision.DecidedBy,
+		})
+	}
+
+	// Update step status
+	if err := engine.store.UpdateStepStatus(ctx, step.ID, newStatus); err != nil {
+		return nil, false, fmt.Errorf("update step status: %w", err)
+	}
+
+	// Parse input data and add decision information
+	var inputData map[string]any
+	if err := json.Unmarshal(step.Input, &inputData); err != nil {
+		// If input is not valid JSON, create empty map
+		inputData = make(map[string]any)
+	}
+
+	// Add decision information to the data
+	inputData["status"] = string(decision.Decision)
+	inputData["decided_by"] = decision.DecidedBy
+	if decision.Comment != nil {
+		inputData["comment"] = *decision.Comment
+	}
+	inputData["decided_at"] = decision.DecidedAt
+
+	// Encode back to JSON
+	output, err := json.Marshal(inputData)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal output: %w", err)
+	}
+
+	return output, newStatus == StepStatusRejected, nil
+}
+
+func (engine *Engine) continueWorkflowAfterHumanDecision(
+	ctx context.Context,
+	instance *WorkflowInstance,
+	step *WorkflowStep,
+) error {
+	// Get workflow definition
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow definition: %w", err)
+	}
+
+	stepDef, ok := def.Definition.Steps[step.StepName]
+	if !ok {
+		return fmt.Errorf("step definition not found: %s", step.StepName)
+	}
+
+	// Continue execution of next steps
+	output := json.RawMessage(`{"status": "confirmed"}`)
+	return engine.handleStepSuccess(ctx, instance, step, stepDef, output, true)
+}
+
 func (engine *Engine) handleStepSuccess(
 	ctx context.Context,
 	instance *WorkflowInstance,
@@ -484,6 +709,13 @@ func (engine *Engine) handleStepSuccess(
 	output json.RawMessage,
 	next bool,
 ) error {
+	// For human steps waiting for decision, don't update status
+	if stepDef.Type == StepTypeHuman &&
+		(step.Status == StepStatusWaitingDecision || step.Status == StepStatusPending) {
+		// Don't continue execution, wait for human decision
+		return nil
+	}
+
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusCompleted, output, nil); err != nil {
 		return fmt.Errorf("update step: %w", err)
 	}
