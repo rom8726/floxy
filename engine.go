@@ -228,6 +228,12 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
+	if stepDef.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, stepDef.Timeout)
+		defer cancel()
+	}
+
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRunning, nil, nil); err != nil {
 		return fmt.Errorf("update step status: %w", err)
 	}
@@ -282,6 +288,12 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
+	if stepDef.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, stepDef.Timeout)
+		defer cancel()
+	}
+
 	onFailureStep, ok := def.Definition.Steps[stepDef.OnFailure]
 	if !ok {
 		// No compensation handler, mark as rolled back
@@ -326,7 +338,7 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 			}
 
 			// Re-enqueue for retry
-			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
 				return fmt.Errorf("enqueue compensation retry: %w", err)
 			}
 
@@ -430,7 +442,7 @@ func (engine *Engine) executeFork(
 			return nil, fmt.Errorf("create fork step %s: %w", parallelStepName, err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, 0, 0); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, 0, parallelStepDef.Delay); err != nil {
 			return nil, fmt.Errorf("enqueue fork step %s: %w", parallelStepName, err)
 		}
 	}
@@ -581,7 +593,7 @@ func (engine *Engine) executeHuman(
 		return nil, false, fmt.Errorf("update step status to waiting_decision: %w", err)
 	}
 
-	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, time.Second); err != nil {
+	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, stepDef.Delay); err != nil {
 		return nil, false, fmt.Errorf("enqueue step: %w", err)
 	}
 
@@ -780,7 +792,7 @@ func (engine *Engine) handleStepFailure(
 			KeyError:      errMsg,
 		})
 
-		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, 0)
+		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, stepDef.Delay)
 	}
 
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
@@ -969,7 +981,7 @@ func (engine *Engine) enqueueNextSteps(
 			return fmt.Errorf("create step: %w", err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, 0, 0); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, 0, stepDef.Delay); err != nil {
 			return fmt.Errorf("enqueue step: %w", err)
 		}
 	}
@@ -1254,7 +1266,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	}
 
 	// Enqueue compensation step for execution
-	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
 

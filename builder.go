@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 const (
@@ -417,6 +418,7 @@ func (builder *Builder) WaitHumanConfirm(name string, opts ...StepOption) *Build
 		MaxRetries: builder.defaultMaxRetries,
 		Prev:       builder.currentStep,
 		Metadata:   make(map[string]any),
+		Delay:      time.Minute,
 	}
 
 	for _, opt := range opts {

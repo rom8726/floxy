@@ -159,7 +159,7 @@ func main() {
 
 	workflowDef, err := floxy.NewBuilder("document-approval", 1).
 		Step("process-document", "document-processor", floxy.WithStepMaxRetries(2)).
-		WaitHumanConfirm("human-approval").
+		WaitHumanConfirm("human-approval", floxy.WithStepDelay(time.Second)).
 		Then("approve-document", "approval").
 		Then("send-approval-notification", "notification",
 			floxy.WithStepMaxRetries(1),
