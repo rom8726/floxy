@@ -252,6 +252,34 @@ Available migrations:
 - `004_add_compensation_to_views.up.sql`: active_workflows view updated
 - `005_add_idempotency_key_to_steps.up.sql`: Idempotency Key added to step table
 
+## Known Issues
+
+### Condition Steps in Forked Branches
+
+When using `Condition` steps within `Fork` branches, the `Join` step may not wait for all dynamically created steps (like `else` branches) to complete before considering the workflow finished. This can lead to premature workflow completion.
+
+**Example of problematic case:**
+```go
+Fork("parallel_branch", func(branch1 *floxy.Builder) {
+    branch1.Step("branch1_step1", "handler").
+        Condition("branch1_condition", "{{ gt .count 5 }}", func(elseBranch *floxy.Builder) {
+            elseBranch.Step("branch1_else", "handler") // This step might not be waited for
+        }).
+        Then("branch1_next", "handler")
+}, func(branch2 *floxy.Builder) {
+    branch2.Step("branch2_step1", "handler").
+        Condition("branch2_condition", "{{ lt .count 3 }}", func(elseBranch *floxy.Builder) {
+            elseBranch.Step("branch2_else", "handler") // This step might not be waited for
+        }).
+        Then("branch2_next", "handler")
+}).
+JoinStep("join", []string{"branch1_step1", "branch2_step1"}, floxy.JoinStrategyAll)
+```
+
+**Workaround:** Avoid using `Condition` steps within `Fork` branches, or ensure all possible execution paths are explicitly listed in the `JoinStep` WaitFor array.
+
+See `examples/condition/main.go` for a demonstration of this issue.
+
 ## Installation
 
 ```bash

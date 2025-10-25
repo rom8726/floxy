@@ -1,5 +1,11 @@
 package main
 
+// This example demonstrates a KNOWN ISSUE with Condition steps in Fork branches.
+// The Join step may not wait for all dynamically created steps (like else branches)
+// to complete before considering the workflow finished.
+// This can lead to premature workflow completion.
+// See README.md for more details and workarounds.
+
 import (
 	"context"
 	"encoding/json"
@@ -195,4 +201,10 @@ func main() {
 	fmt.Println("- Branch 2 fails, so the entire workflow fails")
 	fmt.Println("- All steps are rolled back due to the failure")
 	fmt.Println("- Join and final steps are not completed")
+	fmt.Println("\n=== KNOWN ISSUE ===")
+	fmt.Println("This example demonstrates a known issue with Condition steps in Fork branches.")
+	fmt.Println("The Join step may not wait for all dynamically created steps (like else branches)")
+	fmt.Println("to complete before considering the workflow finished.")
+	fmt.Println("This can lead to premature workflow completion.")
+	fmt.Println("See README.md for more details and workarounds.")
 }
