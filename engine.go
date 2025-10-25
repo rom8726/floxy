@@ -2,7 +2,6 @@ package floxy
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,7 +142,6 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 	return empty, nil
 }
 
-// MakeHumanDecision accepts human decision for human-in-the-loop step
 func (engine *Engine) MakeHumanDecision(
 	ctx context.Context,
 	stepID int64,
@@ -152,7 +150,6 @@ func (engine *Engine) MakeHumanDecision(
 	comment *string,
 ) error {
 	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
-		// Get step information
 		step, err := engine.store.GetStepByID(ctx, stepID)
 		if err != nil {
 			return fmt.Errorf("get step: %w", err)
@@ -166,7 +163,6 @@ func (engine *Engine) MakeHumanDecision(
 			return fmt.Errorf("step %d is not waiting for decision (current status: %s)", stepID, step.Status)
 		}
 
-		// Create decision record
 		decisionRecord := &HumanDecisionRecord{
 			InstanceID: step.InstanceID,
 			StepID:     stepID,
@@ -180,7 +176,6 @@ func (engine *Engine) MakeHumanDecision(
 			return fmt.Errorf("create human decision: %w", err)
 		}
 
-		// Update step status
 		var newStatus StepStatus
 		switch decision {
 		case HumanDecisionConfirmed:
@@ -193,7 +188,6 @@ func (engine *Engine) MakeHumanDecision(
 			return fmt.Errorf("update step status: %w", err)
 		}
 
-		// Log event
 		_ = engine.store.LogEvent(ctx, step.InstanceID, &stepID, EventStepCompleted, map[string]any{
 			KeyStepName:  step.StepName,
 			KeyDecision:  decision,
@@ -572,7 +566,7 @@ func (engine *Engine) executeHuman(
 ) (json.RawMessage, bool, error) {
 	// Check if there's already a decision for this step
 	decision, err := engine.store.GetHumanDecision(ctx, step.ID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, ErrEntityNotFound) {
 		return nil, false, fmt.Errorf("get human decision: %w", err)
 	}
 

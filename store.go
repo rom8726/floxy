@@ -2,13 +2,13 @@ package floxy
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 )
@@ -58,6 +58,10 @@ WHERE id = $1`
 		&def.ID, &def.Name, &def.Version, &definitionJSON, &def.CreatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
 		return nil, err
 	}
 
@@ -131,6 +135,10 @@ WHERE id = $1`
 		&instance.CreatedAt, &instance.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
 		return nil, err
 	}
 
@@ -256,7 +264,7 @@ RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attem
 		&item.ScheduledAt, &item.AttemptedAt, &item.AttemptedBy, &item.Priority,
 	)
 
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 
@@ -402,6 +410,10 @@ WHERE instance_id = $1 AND join_step_name = $2`
 		&state.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
 		return nil, err
 	}
 
@@ -800,6 +812,10 @@ WHERE step_id = $1`
 		&decision.DecidedAt, &decision.CreatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
 		return nil, err
 	}
 
@@ -834,6 +850,39 @@ WHERE id = $1`
 		&step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+		return nil, err
+	}
+
+	return &step, nil
+}
+
+func (store *StoreImpl) GetHumanDecisionStepByInstanceID(ctx context.Context, instanceID int64) (*WorkflowStep, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, step_name, step_type, status, input, output, error,
+	retry_count, max_retries, compensation_retry_count, idempotency_key,
+	started_at, completed_at, created_at
+FROM workflows.workflow_steps
+WHERE instance_id = $1 AND step_type = $2
+ORDER BY created_at DESC
+LIMIT 1`
+
+	var step WorkflowStep
+	err := executor.QueryRow(ctx, query, instanceID, StepTypeHuman).Scan(
+		&step.ID, &step.InstanceID, &step.StepName, &step.StepType,
+		&step.Status, &step.Input, &step.Output, &step.Error,
+		&step.RetryCount, &step.MaxRetries, &step.CompensationRetryCount,
+		&step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+
 		return nil, err
 	}
 

@@ -81,4 +81,5 @@ type Store interface {
 	GetHumanDecision(ctx context.Context, stepID int64) (*HumanDecisionRecord, error)
 	UpdateStepStatus(ctx context.Context, stepID int64, status StepStatus) error
 	GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error)
+	GetHumanDecisionStepByInstanceID(ctx context.Context, instanceID int64) (*WorkflowStep, error)
 }

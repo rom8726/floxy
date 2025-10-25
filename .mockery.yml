@@ -1,12 +1,12 @@
 all: false
-dir: '{{.InterfaceDir}}'
-filename: mocks_test.go
+dir: '{{.InterfaceDir}}/mocks'
+filename: mocks.go
 force-file-write: true
 formatter: goimports
 include-auto-generated: false
 log-level: info
 structname: '{{.Mock}}{{.InterfaceName}}'
-pkgname: '{{.SrcPackageName}}'
+pkgname: 'floxy'
 recursive: false
 require-template-schema-exists: true
 template: testify

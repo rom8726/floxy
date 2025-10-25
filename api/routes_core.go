@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/rom8726/floxy"
 )
 
@@ -82,7 +80,7 @@ func HandleGetWorkflowDefinition(store floxy.Store) func(http.ResponseWriter, *h
 
 		definition, err := store.GetWorkflowDefinition(ctx, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, floxy.ErrEntityNotFound) {
 				http.Error(w, "Workflow definition not found", http.StatusNotFound)
 
 				return
@@ -106,7 +104,7 @@ func HandleGetWorkflowInstances(store floxy.Store) func(http.ResponseWriter, *ht
 		// First check if workflow exists
 		_, err := store.GetWorkflowDefinition(ctx, workflowID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, floxy.ErrEntityNotFound) {
 				http.Error(w, "Workflow not found", http.StatusNotFound)
 
 				return
@@ -159,7 +157,7 @@ func HandleGetWorkflowInstance(store floxy.Store) func(http.ResponseWriter, *htt
 
 		instance, err := store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, floxy.ErrEntityNotFound) {
 				http.Error(w, "Workflow instance not found", http.StatusNotFound)
 
 				return
@@ -190,7 +188,7 @@ func HandleGetWorkflowSteps(store floxy.Store) func(http.ResponseWriter, *http.R
 		// First check if instance exists
 		_, err = store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, floxy.ErrEntityNotFound) {
 				http.Error(w, "Workflow instance not found", http.StatusNotFound)
 
 				return
@@ -230,7 +228,7 @@ func HandleGetWorkflowEvents(store floxy.Store) func(http.ResponseWriter, *http.
 		// First check if instance exists
 		_, err = store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, floxy.ErrEntityNotFound) {
 				http.Error(w, "Workflow instance not found", http.StatusNotFound)
 
 				return
