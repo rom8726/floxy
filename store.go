@@ -700,6 +700,42 @@ ORDER BY created_at`
 	return steps, rows.Err()
 }
 
+func (store *StoreImpl) GetActiveSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, step_name, step_type, status, input, output, error,
+    retry_count, max_retries, compensation_retry_count, idempotency_key,
+    started_at, completed_at, created_at
+FROM workflows.workflow_steps
+WHERE instance_id = $1 
+    AND status IN ('pending', 'running', 'waiting_decision')
+ORDER BY created_at DESC`
+
+	rows, err := executor.Query(ctx, query, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	steps := make([]WorkflowStep, 0)
+	for rows.Next() {
+		var step WorkflowStep
+		err := rows.Scan(
+			&step.ID, &step.InstanceID, &step.StepName, &step.StepType,
+			&step.Status, &step.Input, &step.Output, &step.Error,
+			&step.RetryCount, &step.MaxRetries, &step.CompensationRetryCount,
+			&step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+
+	return steps, rows.Err()
+}
+
 func (store *StoreImpl) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
 	executor := store.getExecutor(ctx)
 

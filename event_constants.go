@@ -2,19 +2,23 @@ package floxy
 
 const (
 	// Event types
-	EventWorkflowStarted   = "workflow_started"
-	EventWorkflowCompleted = "workflow_completed"
-	EventStepStarted       = "step_started"
-	EventStepCompleted     = "step_completed"
-	EventStepRetry         = "step_retry"
-	EventStepFailed        = "step_failed"
-	EventForkStarted       = "fork_started"
-	EventJoinStateCreated  = "join_state_created"
-	EventJoinCheck         = "join_check"
-	EventJoinCompleted     = "join_completed"
-	EventJoinUpdated       = "join_updated"
-	EventJoinReady         = "join_ready"
-	EventConditionCheck    = "condition_check"
+	EventWorkflowStarted     = "workflow_started"
+	EventWorkflowCompleted   = "workflow_completed"
+	EventWorkflowCancelled   = "workflow_cancelled"
+	EventWorkflowAborted     = "workflow_aborted"
+	EventStepStarted         = "step_started"
+	EventStepCompleted       = "step_completed"
+	EventStepRetry           = "step_retry"
+	EventStepFailed          = "step_failed"
+	EventForkStarted         = "fork_started"
+	EventJoinStateCreated    = "join_state_created"
+	EventJoinCheck           = "join_check"
+	EventJoinCompleted       = "join_completed"
+	EventJoinUpdated         = "join_updated"
+	EventJoinReady           = "join_ready"
+	EventConditionCheck      = "condition_check"
+	EventCancellationStarted = "cancellation_started"
+	EventAbortStarted        = "abort_started"
 
 	// Event data keys
 	KeyWorkflowID    = "workflow_id"
@@ -38,4 +42,5 @@ const (
 	KeyDecision      = "decision"
 	KeyDecidedBy     = "decided_by"
 	KeyMessage       = "message"
+	KeyRequestedBy   = "requested_by"
 )
