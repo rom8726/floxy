@@ -2,6 +2,7 @@ package floxy
 
 import (
 	"log"
+	"time"
 )
 
 type StepOption func(step *StepDefinition)
@@ -28,6 +29,18 @@ func WithStepNoIdempotent() StepOption {
 	return func(step *StepDefinition) {
 		step.NoIdempotent = true
 		step.MaxRetries = 1
+	}
+}
+
+func WithStepDelay(delay time.Duration) StepOption {
+	return func(step *StepDefinition) {
+		step.Delay = delay
+	}
+}
+
+func WithStepTimeout(timeout time.Duration) StepOption {
+	return func(step *StepDefinition) {
+		step.Timeout = timeout
 	}
 }
 

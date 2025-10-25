@@ -29,7 +29,7 @@ func TestHumanInTheLoopConfirmed(t *testing.T) {
 	// Create workflow: start -> human-approval -> approve -> final
 	workflowDef, err := NewBuilder("human_approval_confirmed", 1).
 		Step("start", "simple-test", WithStepMaxRetries(1)).
-		WaitHumanConfirm("human-approval").
+		WaitHumanConfirm("human-approval", WithStepDelay(time.Millisecond*100)).
 		Then("approve", "approval-test", WithStepMaxRetries(1)).
 		Then("final", "simple-test", WithStepMaxRetries(1)).
 		Build()
@@ -150,7 +150,7 @@ func TestHumanInTheLoopRejected(t *testing.T) {
 	// Create workflow: start -> human-approval -> approve -> final
 	workflowDef, err := NewBuilder("human_approval_rejected", 1).
 		Step("start", "simple-test", WithStepMaxRetries(1)).
-		WaitHumanConfirm("human-approval").
+		WaitHumanConfirm("human-approval", WithStepDelay(time.Millisecond*100)).
 		Then("approve", "approval-test", WithStepMaxRetries(1)).
 		Then("final", "simple-test", WithStepMaxRetries(1)).
 		Build()

@@ -194,9 +194,9 @@ func (engine *Engine) MakeHumanDecision(
 			KeyDecidedBy: decidedBy,
 		})
 
-		// If decision is confirmed, continue workflow execution
+		// If the decision is confirmed, continue workflow execution
 		if decision == HumanDecisionConfirmed {
-			// Set workflow to running status if it was paused
+			// Set the workflow to running status if it was paused
 			instance, err := engine.store.GetInstance(ctx, step.InstanceID)
 			if err != nil {
 				return fmt.Errorf("get instance: %w", err)
@@ -211,10 +211,147 @@ func (engine *Engine) MakeHumanDecision(
 			// Continue execution of next steps
 			return engine.continueWorkflowAfterHumanDecision(ctx, instance, step)
 		} else {
-			// If decision is rejected, stop workflow
+			// If the decision is rejected, stop the workflow
 			return engine.store.UpdateInstanceStatus(ctx, step.InstanceID, StatusAborted, nil, nil)
 		}
 	})
+}
+
+func (engine *Engine) CancelWorkflow(ctx context.Context, instanceID int64, requestedBy, reason string) error {
+	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		instance, err := engine.store.GetInstance(ctx, instanceID)
+		if err != nil {
+			return fmt.Errorf("get instance: %w", err)
+		}
+
+		if instance.Status == StatusCompleted ||
+			instance.Status == StatusFailed ||
+			instance.Status == StatusCancelled ||
+			instance.Status == StatusAborted {
+			return fmt.Errorf("workflow %d is already in terminal state: %s", instanceID, instance.Status)
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, nil, EventCancellationStarted, map[string]any{
+			KeyRequestedBy: requestedBy,
+			KeyReason:      reason,
+		})
+
+		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusCancelling, nil, nil); err != nil {
+			return fmt.Errorf("update instance status to cancelling: %w", err)
+		}
+
+		if err := engine.stopActiveSteps(ctx, instanceID); err != nil {
+			return fmt.Errorf("stop active steps: %w", err)
+		}
+
+		def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
+
+		steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+		if err != nil {
+			return fmt.Errorf("get steps: %w", err)
+		}
+
+		stepMap := make(map[string]*WorkflowStep)
+		for _, step := range steps {
+			step := step
+			stepMap[step.StepName] = &step
+		}
+
+		var lastCompletedStep *WorkflowStep
+		for i := len(steps) - 1; i >= 0; i-- {
+			if steps[i].Status == StepStatusCompleted {
+				lastCompletedStep = &steps[i]
+
+				break
+			}
+		}
+
+		if lastCompletedStep != nil {
+			if err := engine.rollbackStepChain(ctx, lastCompletedStep.StepName, rootStepName, def, stepMap, false); err != nil {
+				_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowCancelled, map[string]any{
+					KeyRequestedBy: requestedBy,
+					KeyReason:      reason,
+					KeyError:       fmt.Sprintf("rollback failed: %v", err),
+				})
+
+				errMsg := fmt.Sprintf("cancellation rollback failed: %v", err)
+
+				return engine.store.UpdateInstanceStatus(ctx, instanceID, StatusFailed, nil, &errMsg)
+			}
+		}
+
+		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusCancelled, nil, nil); err != nil {
+			return fmt.Errorf("update instance status to cancelled: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowCancelled, map[string]any{
+			KeyRequestedBy: requestedBy,
+			KeyReason:      reason,
+		})
+
+		return nil
+	})
+}
+
+func (engine *Engine) AbortWorkflow(ctx context.Context, instanceID int64, requestedBy, reason string) error {
+	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		instance, err := engine.store.GetInstance(ctx, instanceID)
+		if err != nil {
+			return fmt.Errorf("get instance: %w", err)
+		}
+
+		if instance.Status == StatusCompleted ||
+			instance.Status == StatusFailed ||
+			instance.Status == StatusCancelled ||
+			instance.Status == StatusAborted {
+			return fmt.Errorf("workflow %d is already in terminal state: %s", instanceID, instance.Status)
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, nil, EventAbortStarted, map[string]any{
+			KeyRequestedBy: requestedBy,
+			KeyReason:      reason,
+		})
+
+		if err := engine.stopActiveSteps(ctx, instanceID); err != nil {
+			return fmt.Errorf("stop active steps: %w", err)
+		}
+
+		abortMsg := fmt.Sprintf("Aborted by %s: %s", requestedBy, reason)
+		if err := engine.store.UpdateInstanceStatus(ctx, instanceID, StatusAborted, nil, &abortMsg); err != nil {
+			return fmt.Errorf("update instance status to aborted: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, nil, EventWorkflowAborted, map[string]any{
+			KeyRequestedBy: requestedBy,
+			KeyReason:      reason,
+		})
+
+		return nil
+	})
+}
+
+func (engine *Engine) stopActiveSteps(ctx context.Context, instanceID int64) error {
+	activeSteps, err := engine.store.GetActiveSteps(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get active steps: %w", err)
+	}
+
+	for _, step := range activeSteps {
+		skipMsg := "Stopped due to workflow cancellation/abort"
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusSkipped, nil, &skipMsg); err != nil {
+			return fmt.Errorf("update step %d status to skipped: %w", step.ID, err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName: step.StepName,
+			KeyReason:   "workflow_stopped",
+		})
+	}
+
+	return nil
 }
 
 func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
@@ -226,6 +363,12 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	stepDef, ok := def.Definition.Steps[step.StepName]
 	if !ok {
 		return fmt.Errorf("step definition not found: %s", step.StepName)
+	}
+
+	if stepDef.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, stepDef.Timeout)
+		defer cancel()
 	}
 
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRunning, nil, nil); err != nil {
@@ -282,6 +425,12 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
+	if stepDef.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, stepDef.Timeout)
+		defer cancel()
+	}
+
 	onFailureStep, ok := def.Definition.Steps[stepDef.OnFailure]
 	if !ok {
 		// No compensation handler, mark as rolled back
@@ -326,7 +475,7 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 			}
 
 			// Re-enqueue for retry
-			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
 				return fmt.Errorf("enqueue compensation retry: %w", err)
 			}
 
@@ -430,7 +579,7 @@ func (engine *Engine) executeFork(
 			return nil, fmt.Errorf("create fork step %s: %w", parallelStepName, err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, 0, 0); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, 0, parallelStepDef.Delay); err != nil {
 			return nil, fmt.Errorf("enqueue fork step %s: %w", parallelStepName, err)
 		}
 	}
@@ -581,7 +730,7 @@ func (engine *Engine) executeHuman(
 		return nil, false, fmt.Errorf("update step status to waiting_decision: %w", err)
 	}
 
-	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, time.Second); err != nil {
+	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, stepDef.Delay); err != nil {
 		return nil, false, fmt.Errorf("enqueue step: %w", err)
 	}
 
@@ -780,7 +929,7 @@ func (engine *Engine) handleStepFailure(
 			KeyError:      errMsg,
 		})
 
-		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, 0)
+		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, stepDef.Delay)
 	}
 
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
@@ -969,7 +1118,7 @@ func (engine *Engine) enqueueNextSteps(
 			return fmt.Errorf("create step: %w", err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, 0, 0); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, 0, stepDef.Delay); err != nil {
 			return fmt.Errorf("enqueue step: %w", err)
 		}
 	}
@@ -1254,7 +1403,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	}
 
 	// Enqueue compensation step for execution
-	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, 0); err != nil {
+	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
 

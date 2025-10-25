@@ -87,6 +87,8 @@ type StepDefinition struct {
 	JoinStrategy JoinStrategy   `json:"join_strategy"`  // "all" (default) or "any"
 	Metadata     map[string]any `json:"metadata"`
 	NoIdempotent bool           `json:"no_idempotent"`
+	Delay        time.Duration  `json:"delay"`
+	Timeout      time.Duration  `json:"timeout"`
 }
 
 type WorkflowInstance struct {
