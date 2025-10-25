@@ -67,7 +67,7 @@ type MockIEngine_MakeHumanDecision_Call struct {
 //   - ctx context.Context
 //   - stepID int64
 //   - decidedBy string
-//   - decision floxy.HumanDecision
+//   - decision HumanDecision
 //   - comment *string
 func (_e *MockIEngine_Expecter) MakeHumanDecision(ctx interface{}, stepID interface{}, decidedBy interface{}, decision interface{}, comment interface{}) *MockIEngine_MakeHumanDecision_Call {
 	return &MockIEngine_MakeHumanDecision_Call{Call: _e.mock.On("MakeHumanDecision", ctx, stepID, decidedBy, decision, comment)}
@@ -267,7 +267,7 @@ type MockStepHandler_Execute_Call struct {
 
 // Execute is a helper method to define mock.On call
 //   - ctx context.Context
-//   - stepCtx floxy.StepContext
+//   - stepCtx StepContext
 //   - input json.RawMessage
 func (_e *MockStepHandler_Expecter) Execute(ctx interface{}, stepCtx interface{}, input interface{}) *MockStepHandler_Execute_Call {
 	return &MockStepHandler_Execute_Call{Call: _e.mock.On("Execute", ctx, stepCtx, input)}
@@ -772,7 +772,7 @@ type MockStore_CreateHumanDecision_Call struct {
 
 // CreateHumanDecision is a helper method to define mock.On call
 //   - ctx context.Context
-//   - decision *floxy.HumanDecisionRecord
+//   - decision *HumanDecisionRecord
 func (_e *MockStore_Expecter) CreateHumanDecision(ctx interface{}, decision interface{}) *MockStore_CreateHumanDecision_Call {
 	return &MockStore_CreateHumanDecision_Call{Call: _e.mock.On("CreateHumanDecision", ctx, decision)}
 }
@@ -906,7 +906,7 @@ type MockStore_CreateJoinState_Call struct {
 //   - instanceID int64
 //   - joinStepName string
 //   - waitingFor []string
-//   - strategy floxy.JoinStrategy
+//   - strategy JoinStrategy
 func (_e *MockStore_Expecter) CreateJoinState(ctx interface{}, instanceID interface{}, joinStepName interface{}, waitingFor interface{}, strategy interface{}) *MockStore_CreateJoinState_Call {
 	return &MockStore_CreateJoinState_Call{Call: _e.mock.On("CreateJoinState", ctx, instanceID, joinStepName, waitingFor, strategy)}
 }
@@ -978,7 +978,7 @@ type MockStore_CreateStep_Call struct {
 
 // CreateStep is a helper method to define mock.On call
 //   - ctx context.Context
-//   - step *floxy.WorkflowStep
+//   - step *WorkflowStep
 func (_e *MockStore_Expecter) CreateStep(ctx interface{}, step interface{}) *MockStore_CreateStep_Call {
 	return &MockStore_CreateStep_Call{Call: _e.mock.On("CreateStep", ctx, step)}
 }
@@ -1212,6 +1212,74 @@ func (_c *MockStore_GetActiveInstances_Call) Return(activeWorkflowInstances []Ac
 }
 
 func (_c *MockStore_GetActiveInstances_Call) RunAndReturn(run func(ctx context.Context) ([]ActiveWorkflowInstance, error)) *MockStore_GetActiveInstances_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSteps provides a mock function for the type MockStore
+func (_mock *MockStore) GetActiveSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
+	ret := _mock.Called(ctx, instanceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSteps")
+	}
+
+	var r0 []WorkflowStep
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) ([]WorkflowStep, error)); ok {
+		return returnFunc(ctx, instanceID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) []WorkflowStep); ok {
+		r0 = returnFunc(ctx, instanceID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]WorkflowStep)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = returnFunc(ctx, instanceID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetActiveSteps_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSteps'
+type MockStore_GetActiveSteps_Call struct {
+	*mock.Call
+}
+
+// GetActiveSteps is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+func (_e *MockStore_Expecter) GetActiveSteps(ctx interface{}, instanceID interface{}) *MockStore_GetActiveSteps_Call {
+	return &MockStore_GetActiveSteps_Call{Call: _e.mock.On("GetActiveSteps", ctx, instanceID)}
+}
+
+func (_c *MockStore_GetActiveSteps_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_GetActiveSteps_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetActiveSteps_Call) Return(workflowSteps []WorkflowStep, err error) *MockStore_GetActiveSteps_Call {
+	_c.Call.Return(workflowSteps, err)
+	return _c
+}
+
+func (_c *MockStore_GetActiveSteps_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowStep, error)) *MockStore_GetActiveSteps_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2306,7 +2374,7 @@ type MockStore_SaveWorkflowDefinition_Call struct {
 
 // SaveWorkflowDefinition is a helper method to define mock.On call
 //   - ctx context.Context
-//   - def *floxy.WorkflowDefinition
+//   - def *WorkflowDefinition
 func (_e *MockStore_Expecter) SaveWorkflowDefinition(ctx interface{}, def interface{}) *MockStore_SaveWorkflowDefinition_Call {
 	return &MockStore_SaveWorkflowDefinition_Call{Call: _e.mock.On("SaveWorkflowDefinition", ctx, def)}
 }
@@ -2364,7 +2432,7 @@ type MockStore_UpdateInstanceStatus_Call struct {
 // UpdateInstanceStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - instanceID int64
-//   - status floxy.WorkflowStatus
+//   - status WorkflowStatus
 //   - output json.RawMessage
 //   - errMsg *string
 func (_e *MockStore_Expecter) UpdateInstanceStatus(ctx interface{}, instanceID interface{}, status interface{}, output interface{}, errMsg interface{}) *MockStore_UpdateInstanceStatus_Call {
@@ -2523,7 +2591,7 @@ type MockStore_UpdateStep_Call struct {
 // UpdateStep is a helper method to define mock.On call
 //   - ctx context.Context
 //   - stepID int64
-//   - status floxy.StepStatus
+//   - status StepStatus
 //   - output json.RawMessage
 //   - errMsg *string
 func (_e *MockStore_Expecter) UpdateStep(ctx interface{}, stepID interface{}, status interface{}, output interface{}, errMsg interface{}) *MockStore_UpdateStep_Call {
@@ -2599,7 +2667,7 @@ type MockStore_UpdateStepCompensationRetry_Call struct {
 //   - ctx context.Context
 //   - stepID int64
 //   - retryCount int
-//   - status floxy.StepStatus
+//   - status StepStatus
 func (_e *MockStore_Expecter) UpdateStepCompensationRetry(ctx interface{}, stepID interface{}, retryCount interface{}, status interface{}) *MockStore_UpdateStepCompensationRetry_Call {
 	return &MockStore_UpdateStepCompensationRetry_Call{Call: _e.mock.On("UpdateStepCompensationRetry", ctx, stepID, retryCount, status)}
 }
@@ -2667,7 +2735,7 @@ type MockStore_UpdateStepStatus_Call struct {
 // UpdateStepStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - stepID int64
-//   - status floxy.StepStatus
+//   - status StepStatus
 func (_e *MockStore_Expecter) UpdateStepStatus(ctx interface{}, stepID interface{}, status interface{}) *MockStore_UpdateStepStatus_Call {
 	return &MockStore_UpdateStepStatus_Call{Call: _e.mock.On("UpdateStepStatus", ctx, stepID, status)}
 }
