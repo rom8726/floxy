@@ -50,8 +50,8 @@ func TestRollbackConditionFailureInParallelBranches(t *testing.T) {
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
 
-	// Start with count = 2 (branch1: false -> else, branch2: true -> next, but else will fail)
-	input := json.RawMessage(`{"count": 2}`)
+	// Start with count = 6 (branch1: true -> next, branch2: false -> else which fails)
+	input := json.RawMessage(`{"count": 6}`)
 	instanceID, err := engine.Start(ctx, "rollback_failure_parallel-v1", input)
 	require.NoError(t, err)
 
@@ -84,47 +84,26 @@ func TestRollbackConditionFailureInParallelBranches(t *testing.T) {
 	t.Logf("Executed steps: %v", stepNames)
 	t.Logf("Step statuses: %v", stepStatuses)
 
-	// Expected execution path:
+	// Expected execution path with count = 6:
 	// - start (completed)
 	// - parallel_branch (completed)
 	// - branch1_step1 (completed)
-	// - branch1_condition (completed, false -> else)
-	// - branch1_else (completed)
+	// - branch1_condition (completed, true -> next)
+	// - branch1_next (completed)
 	// - branch2_step1 (completed)
-	// - branch2_condition (completed, true -> next)
-	// - branch2_next (completed)
-	// - join (should wait for both branches to complete)
-	// - final (completed)
+	// - branch2_condition (completed, false -> else)
+	// - branch2_else (failed) -> triggers rollback
+	// - All steps should be rolled_back due to failure
 
-	// The key test: verify that our rollback logic correctly handles condition steps
-	// in parallel branches when one branch fails
+	// The key test: verify that when one branch fails, the entire workflow fails
+	// and all steps are rolled back
 
-	// Verify that the executed steps are present
-	assert.Contains(t, stepNames, "start")
-	assert.Contains(t, stepNames, "parallel_branch")
-	assert.Contains(t, stepNames, "branch1_step1")
-	assert.Contains(t, stepNames, "branch1_condition")
-	assert.Contains(t, stepNames, "branch1_else")
-	assert.Contains(t, stepNames, "branch2_step1")
-	assert.Contains(t, stepNames, "branch2_condition")
-	assert.Contains(t, stepNames, "branch2_next")
+	// Verify that the workflow failed
+	assert.Equal(t, StatusFailed, status, "Workflow should fail when one branch fails")
 
-	// Verify that the non-executed steps are not present
-	assert.NotContains(t, stepNames, "branch1_next")
-	assert.NotContains(t, stepNames, "branch2_else")
-
-	// The workflow should complete successfully because:
-	// - branch1 took the else path (branch1_else)
-	// - branch2 took the next path (branch2_next)
-	// - Both branches completed successfully
-	// - Join step should wait for both branches and then proceed to final
-
-	if status == StatusCompleted {
-		t.Logf("✅ Workflow completed successfully - this is the expected behavior")
-		assert.Contains(t, stepNames, "join")
-		assert.Contains(t, stepNames, "final")
-	} else {
-		t.Logf("❌ Workflow failed - this might indicate a problem with join logic")
+	// Verify that all steps are rolled back
+	for _, step := range steps {
+		assert.Equal(t, StepStatusRolledBack, step.Status, "All steps should be rolled back")
 	}
 }
 
@@ -168,8 +147,8 @@ func TestRollbackConditionFailureInParallelBranchesWithFailure(t *testing.T) {
 	err = engine.RegisterWorkflow(ctx, workflowDef)
 	require.NoError(t, err)
 
-	// Start with count = 2 (branch1: false -> else, branch2: true -> next, but else will fail)
-	input := json.RawMessage(`{"count": 2}`)
+	// Start with count = 6 (branch1: true -> next, branch2: false -> else which fails)
+	input := json.RawMessage(`{"count": 6}`)
 	instanceID, err := engine.Start(ctx, "rollback_failure_parallel2-v1", input)
 	require.NoError(t, err)
 
@@ -202,13 +181,25 @@ func TestRollbackConditionFailureInParallelBranchesWithFailure(t *testing.T) {
 	t.Logf("Executed steps: %v", stepNames)
 	t.Logf("Step statuses: %v", stepStatuses)
 
-	// This test should show the same behavior as the previous one
-	// because branch2 takes the "next" path, not the "else" path
-	// So branch2_else (which fails) should not be executed
+	// Expected execution path with count = 6:
+	// - start (completed)
+	// - parallel_branch (completed)
+	// - branch1_step1 (completed)
+	// - branch1_condition (completed, true -> next)
+	// - branch1_next (completed)
+	// - branch2_step1 (completed)
+	// - branch2_condition (completed, false -> else)
+	// - branch2_else (failed) -> triggers rollback
+	// - All steps should be rolled_back due to failure
 
-	if status == StatusCompleted {
-		t.Logf("✅ Workflow completed successfully - this is the expected behavior")
-	} else {
-		t.Logf("❌ Workflow failed - this might indicate a problem with join logic")
+	// The key test: verify that when one branch fails, the entire workflow fails
+	// and all steps are rolled back
+
+	// Verify that the workflow failed
+	assert.Equal(t, StatusFailed, status, "Workflow should fail when one branch fails")
+
+	// Verify that all steps are rolled back
+	for _, step := range steps {
+		assert.Equal(t, StepStatusRolledBack, step.Status, "All steps should be rolled back")
 	}
 }

@@ -112,11 +112,6 @@ func TestRollbackWithConditionSteps(t *testing.T) {
 	assert.Contains(t, stepNames, "branch2_step1")
 	assert.Contains(t, stepNames, "branch2_condition")
 	assert.Contains(t, stepNames, "branch2_next")
-
-	// The problem: join and final should not be executed if branch2_next fails
-	// This indicates that the rollback logic is not properly handling condition steps
-	t.Logf("PROBLEM: join and final were executed even though branch2_next failed")
-	t.Logf("This means the rollback logic needs to be updated for condition steps")
 }
 
 type RollbackTestHandler struct{}

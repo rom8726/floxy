@@ -629,6 +629,17 @@ func (engine *Engine) notifyJoinSteps(
 			return fmt.Errorf("update join state for %s: %w", stepName, err)
 		}
 
+		// Additional check: don't consider join ready if there are still pending/running steps
+		// in parallel branches that could affect the join result
+		if isReady {
+			hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+			if hasPendingSteps {
+				isReady = false
+				// Update the join state to reflect that it's not ready
+				_, _ = engine.store.UpdateJoinState(ctx, instanceID, stepName, completedStepName, success)
+			}
+		}
+
 		_ = engine.store.LogEvent(ctx, instanceID, nil, EventJoinUpdated, map[string]any{
 			KeyJoinStep:      stepName,
 			KeyCompletedStep: completedStepName,
@@ -1058,4 +1069,151 @@ func (engine *Engine) determineExecutedBranch(
 
 	// If no branch was executed, return an empty string
 	return ""
+}
+
+// hasPendingStepsInParallelBranches checks if there are any pending/running steps
+// in parallel branches that could affect the join result
+func (engine *Engine) hasPendingStepsInParallelBranches(
+	ctx context.Context,
+	instanceID int64,
+	joinStepDef *StepDefinition,
+	allSteps []WorkflowStep,
+) bool {
+	// Get the fork step that created the parallel branches
+	forkStepName := ""
+	for _, waitFor := range joinStepDef.WaitFor {
+		// Find the fork step that created this parallel branch
+		// by looking for steps that have this step in their Parallel array
+		for _, step := range allSteps {
+			if step.StepName == waitFor {
+				// This is a step from a parallel branch
+				// We need to find the fork step that created this branch
+				forkStepName = engine.findForkStepForParallelStep(ctx, instanceID, waitFor)
+
+				break
+			}
+		}
+		if forkStepName != "" {
+			break
+		}
+	}
+
+	if forkStepName == "" {
+		return false
+	}
+
+	// Get workflow definition to find the fork step
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return false
+	}
+
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return false
+	}
+
+	forkStepDef, ok := def.Definition.Steps[forkStepName]
+	if !ok || forkStepDef.Type != StepTypeFork {
+		return false
+	}
+
+	// Check if there are any pending/running steps in the parallel branches
+	// that are not in the WaitFor list (i.e., dynamically created steps)
+	for _, step := range allSteps {
+		if step.Status == StepStatusPending || step.Status == StepStatusRunning {
+			// Check if this step belongs to one of the parallel branches
+			if engine.isStepInParallelBranch(step.StepName, forkStepDef, def) {
+				// Check if this step is not in the WaitFor list
+				isInWaitFor := false
+				for _, waitFor := range joinStepDef.WaitFor {
+					if step.StepName == waitFor {
+						isInWaitFor = true
+
+						break
+					}
+				}
+				if !isInWaitFor {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// findForkStepForParallelStep finds the fork step that created the given parallel step
+func (engine *Engine) findForkStepForParallelStep(ctx context.Context, instanceID int64, parallelStepName string) string {
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return ""
+	}
+
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return ""
+	}
+
+	// Look for fork steps that have this step in their Parallel array
+	for stepName, stepDef := range def.Definition.Steps {
+		if stepDef.Type == StepTypeFork {
+			for _, parallelStep := range stepDef.Parallel {
+				if parallelStep == parallelStepName {
+					return stepName
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// isStepInParallelBranch checks if a step belongs to one of the parallel branches
+func (engine *Engine) isStepInParallelBranch(stepName string, forkStepDef *StepDefinition, def *WorkflowDefinition) bool {
+	// Check if this step is a direct parallel step
+	for _, parallelStep := range forkStepDef.Parallel {
+		if stepName == parallelStep {
+			return true
+		}
+	}
+
+	// Check if this step is a descendant of any parallel step
+	for _, parallelStep := range forkStepDef.Parallel {
+		if engine.isStepDescendantOf(stepName, parallelStep, def) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isStepDescendantOf checks if a step is a descendant of another step
+func (engine *Engine) isStepDescendantOf(stepName, ancestorStepName string, def *WorkflowDefinition) bool {
+	visited := make(map[string]bool)
+
+	for stepName != "" {
+		if visited[stepName] {
+			break // Prevent infinite loops
+		}
+		visited[stepName] = true
+
+		stepDef, ok := def.Definition.Steps[stepName]
+		if !ok {
+			break
+		}
+
+		if stepName == ancestorStepName {
+			return true
+		}
+
+		// Check if this step is a descendant through Next or Else
+		if stepDef.Prev != "" {
+			stepName = stepDef.Prev
+		} else {
+			break
+		}
+	}
+
+	return false
 }

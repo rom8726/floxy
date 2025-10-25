@@ -193,4 +193,6 @@ func main() {
 	fmt.Println("- Branch 1: condition 'count > 5' = true -> branch1_next executes")
 	fmt.Println("- Branch 2: condition 'count < 3' = false -> branch2_else executes (fails)")
 	fmt.Println("- Branch 2 fails, so the entire workflow fails")
+	fmt.Println("- All steps are rolled back due to the failure")
+	fmt.Println("- Join and final steps are not completed")
 }
