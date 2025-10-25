@@ -4,10 +4,27 @@ A Go library for creating and executing workflows with a custom DSL. Implements 
 
 floxy means "flow" + "flux" + "tiny".
 
+## Table of Contents
+
+- [Features](#features)
+- [Why Floxy?](#why-floxy)
+  - [1. Lightweight, Not Heavyweight](#1-lightweight-not-heavyweight)
+  - [2. Pragmatic by Design](#2-pragmatic-by-design)
+  - [3. Embedded](#3-embedded)
+- [Quick Start](#quick-start)
+- [Examples](#examples)
+- [Integration Tests](#integration-tests)
+- [Database Migrations](#database-migrations)
+- [Known Issues](#known-issues)
+  - [Condition Steps in Forked Branches](#condition-steps-in-forked-branches)
+- [Installation](#installation)
+- [Dependencies](#dependencies)
+
 ## Features
 
 - **Workflow DSL**: Declarative workflow definition using Builder pattern
 - **Saga Pattern**: Orchestrator-based saga implementation with compensation
+- **Workflows Versioning**: Safe changing flows using versions
 - **Transaction Management**: Built-in transaction support with rollback capabilities
 - **Parallel Execution**: Fork/Join patterns for concurrent workflow steps
 - **Error Handling**: Automatic retry mechanisms and failure compensation
