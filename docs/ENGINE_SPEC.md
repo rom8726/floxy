@@ -14,6 +14,7 @@ Key features:
 * Partial rollback via **Save Points**.
 * **Conditional branching** with `Condition` steps.
 * **Smart rollback** for parallel flows with condition steps.
+* **Human-in-the-loop** interactive workflow steps.
 * Unified runtime for both normal and compensation execution.
 
 ---
@@ -36,7 +37,7 @@ Each step is represented by a `StepDefinition`:
 | Field          | Description                                                          |
 | -------------- | -------------------------------------------------------------------- |
 | `Name`         | Unique step name.                                                    |
-| `Type`         | Step type (`task`, `parallel`, `fork`, `join`, `save_point`, `condition`). |
+| `Type`         | Step type (`task`, `parallel`, `fork`, `join`, `save_point`, `condition`, `human`). |
 | `Handler`      | Handler function to execute.                                         |
 | `OnFailure`    | Optional name of a compensation step.                                |
 | `MaxRetries`   | Maximum total number of allowed handler calls (including the first). |
@@ -243,13 +244,112 @@ All subtasks must complete before continuing.
 
 ---
 
-## 8. Condition Steps
+## 8. Human-in-the-Loop Steps
 
 ### 8.1 Overview
 
+`StepTypeHuman` enables interactive workflow steps that pause execution and wait for human decisions. This allows workflows to incorporate human judgment and approval processes.
+
+### 8.2 Human Step Definition
+
+```go
+builder.WaitHumanConfirm("approval_step")
+```
+
+Human steps are defined using the `WaitHumanConfirm` method in the Builder DSL.
+
+### 8.3 Human Step Lifecycle
+
+Human steps have a specialized lifecycle:
+
+```
+pending → running → waiting_decision → (confirmed | rejected)
+```
+
+### 8.4 Human Decision States
+
+| State | Description |
+|-------|-------------|
+| `waiting_decision` | Step is paused, waiting for human input |
+| `confirmed` | Human approved the step, workflow continues |
+| `rejected` | Human rejected the step, workflow aborts |
+
+### 8.5 Making Human Decisions
+
+Use the `MakeHumanDecision` method to provide human input:
+
+```go
+err := engine.MakeHumanDecision(ctx, stepID, "manager@company.com", 
+    floxy.HumanDecisionConfirmed, &comment)
+```
+
+Parameters:
+- `stepID`: ID of the human step
+- `decidedBy`: Identifier of the person making the decision
+- `decision`: Either `HumanDecisionConfirmed` or `HumanDecisionRejected`
+- `comment`: Optional comment explaining the decision
+
+### 8.6 Workflow Behavior
+
+**On Confirmation:**
+- Step status → `confirmed`
+- Workflow continues to next steps
+- Human decision is logged with metadata
+
+**On Rejection:**
+- Step status → `rejected`
+- Workflow status → `aborted`
+- No further steps are executed
+
+### 8.7 Decision Tracking
+
+All human decisions are stored in the `workflow_human_decisions` table:
+
+| Field | Description |
+|-------|-------------|
+| `step_id` | Reference to the human step |
+| `decided_by` | Person who made the decision |
+| `decision` | `confirmed` or `rejected` |
+| `comment` | Optional decision comment |
+| `decided_at` | Timestamp of the decision |
+
+### 8.8 Example Usage
+
+```go
+// Define workflow with human approval
+workflow, err := floxy.NewBuilder("document-approval", 1).
+    Step("process-document", "document-processor").
+    WaitHumanConfirm("human-approval").
+    Then("approve-document", "approval").
+    Build()
+
+// Start workflow
+instanceID, err := engine.Start(ctx, "document-approval-v1", input)
+
+// Wait for human step to be ready
+steps, _ := engine.GetSteps(ctx, instanceID)
+var humanStepID int64
+for _, step := range steps {
+    if step.StepName == "human-approval" && step.Status == floxy.StepStatusWaitingDecision {
+        humanStepID = step.ID
+        break
+    }
+}
+
+// Make human decision
+err = engine.MakeHumanDecision(ctx, humanStepID, "manager@company.com", 
+    floxy.HumanDecisionConfirmed, &comment)
+```
+
+---
+
+## 9. Condition Steps
+
+### 9.1 Overview
+
 `StepTypeCondition` enables conditional branching based on runtime data. The condition is evaluated using Go template syntax with built-in comparison functions.
 
-### 8.2 Condition Expression
+### 9.2 Condition Expression
 
 Conditions use Go templates with the following functions:
 
@@ -262,7 +362,7 @@ Conditions use Go templates with the following functions:
 | `ge`     | Greater than or equal          | `{{ ge .age 18 }}`         |
 | `le`     | Less than or equal             | `{{ le .count 10 }}`       |
 
-### 8.3 Condition Step Definition
+### 9.3 Condition Step Definition
 
 ```go
 builder.Condition("check_funds", "{{ gt .balance 100 }}", func(elseBranch *Builder) {
@@ -271,7 +371,7 @@ builder.Condition("check_funds", "{{ gt .balance 100 }}", func(elseBranch *Build
 Then("process_payment", "ProcessPayment")
 ```
 
-### 8.4 Execution Flow
+### 9.4 Execution Flow
 
 1. **Condition Evaluation**: The engine evaluates the condition expression against the current step context.
 2. **Branch Selection**: 
@@ -279,14 +379,14 @@ Then("process_payment", "ProcessPayment")
    - If `false` → execute `Else` step (if defined)
 3. **Context Passing**: The same input context is passed to the selected branch.
 
-### 8.5 Data Access
+### 9.5 Data Access
 
 Conditions can access:
 - **Input data**: `{{ .field_name }}`
 - **Nested objects**: `{{ .user.age }}`
 - **Step context**: `{{ .instance_id }}`, `{{ .step_name }}`
 
-### 8.6 Type Safety
+### 9.6 Type Safety
 
 The engine automatically handles type conversions for numeric comparisons:
 - `int`, `int64`, `float32`, `float64` are all supported
@@ -295,7 +395,7 @@ The engine automatically handles type conversions for numeric comparisons:
 
 ---
 
-## 9. State Determinism
+## 10. State Determinism
 
 Floxy ensures deterministic workflow execution:
 
@@ -306,7 +406,7 @@ Floxy ensures deterministic workflow execution:
 
 ---
 
-## 9. Failure Semantics
+## 11. Failure Semantics
 
 | Scenario               | Behavior                                                |
 |------------------------| ------------------------------------------------------- |
@@ -318,9 +418,9 @@ Floxy ensures deterministic workflow execution:
 
 ---
 
-## 10. Example Saga Flow
+## 12. Example Saga Flow
 
-### 10.1 Basic Saga
+### 12.1 Basic Saga
 
 ```go
 wf := NewBuilder("order_saga", 1).
@@ -343,7 +443,7 @@ Execution sequence:
     * Mark both as `rolled_back`
     * Instance → `failed`
 
-### 10.2 Saga with Condition Steps
+### 12.2 Saga with Condition Steps
 
 ```go
 wf := NewBuilder("smart_order_saga", 1).
@@ -374,7 +474,7 @@ This example demonstrates:
 
 ---
 
-## 11. Design Principles
+## 13. Design Principles
 
 * **Deterministic State Machine** — no flags or side effects outside state transitions.
 * **Declarative Compensation** — rollback is described, not coded imperatively.
@@ -389,7 +489,7 @@ This example demonstrates:
 
 ---
 
-## 12. Summary
+## 14. Summary
 
 Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 

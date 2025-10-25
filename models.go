@@ -8,23 +8,29 @@ import (
 type WorkflowStatus string
 
 const (
-	StatusPending   WorkflowStatus = "pending"
-	StatusRunning   WorkflowStatus = "running"
-	StatusCompleted WorkflowStatus = "completed"
-	StatusFailed    WorkflowStatus = "failed"
-	StatusCancelled WorkflowStatus = "cancelled"
+	StatusPending     WorkflowStatus = "pending"
+	StatusRunning     WorkflowStatus = "running"
+	StatusCompleted   WorkflowStatus = "completed"
+	StatusFailed      WorkflowStatus = "failed"
+	StatusRollingBack WorkflowStatus = "rolling_back"
+	StatusCancelling  WorkflowStatus = "cancelling"
+	StatusCancelled   WorkflowStatus = "cancelled"
+	StatusAborted     WorkflowStatus = "aborted"
 )
 
 type StepStatus string
 
 const (
-	StepStatusPending      StepStatus = "pending"
-	StepStatusRunning      StepStatus = "running"
-	StepStatusCompleted    StepStatus = "completed"
-	StepStatusFailed       StepStatus = "failed"
-	StepStatusSkipped      StepStatus = "skipped"
-	StepStatusCompensation StepStatus = "compensation"
-	StepStatusRolledBack   StepStatus = "rolled_back"
+	StepStatusPending         StepStatus = "pending"
+	StepStatusRunning         StepStatus = "running"
+	StepStatusCompleted       StepStatus = "completed"
+	StepStatusFailed          StepStatus = "failed"
+	StepStatusSkipped         StepStatus = "skipped"
+	StepStatusCompensation    StepStatus = "compensation"
+	StepStatusRolledBack      StepStatus = "rolled_back"
+	StepStatusWaitingDecision StepStatus = "waiting_decision"
+	StepStatusConfirmed       StepStatus = "confirmed"
+	StepStatusRejected        StepStatus = "rejected"
 )
 
 type StepType string
@@ -36,6 +42,7 @@ const (
 	StepTypeFork      StepType = "fork"
 	StepTypeJoin      StepType = "join"
 	StepTypeSavePoint StepType = "save_point"
+	StepTypeHuman     StepType = "human"
 )
 
 type JoinStrategy string
@@ -43,6 +50,13 @@ type JoinStrategy string
 const (
 	JoinStrategyAll JoinStrategy = "all"
 	JoinStrategyAny JoinStrategy = "any"
+)
+
+type HumanDecision string
+
+const (
+	HumanDecisionConfirmed HumanDecision = "confirmed"
+	HumanDecisionRejected  HumanDecision = "rejected"
 )
 
 type WorkflowDefinition struct {
@@ -157,4 +171,15 @@ type ActiveWorkflowInstance struct {
 	TotalSteps      int       `json:"total_steps"`
 	CompletedSteps  int       `json:"completed_steps"`
 	RolledBackSteps int       `json:"rolled_back_steps"`
+}
+
+type HumanDecisionRecord struct {
+	ID         int64         `json:"id"`
+	InstanceID int64         `json:"instance_id"`
+	StepID     int64         `json:"step_id"`
+	DecidedBy  string        `json:"decided_by"`
+	Decision   HumanDecision `json:"decision"`
+	Comment    *string       `json:"comment"`
+	DecidedAt  time.Time     `json:"decided_at"`
+	CreatedAt  time.Time     `json:"created_at"`
 }

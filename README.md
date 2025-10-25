@@ -13,6 +13,7 @@ floxy means "flow" + "flux" + "tiny".
 - **Error Handling**: Automatic retry mechanisms and failure compensation
 - **SavePoints**: Rollback to specific points in workflow execution
 - **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps.
+- **Human-in-the-loop**: Interactive workflow steps that pause execution for human decisions
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 
@@ -199,6 +200,7 @@ See the `examples/` directory for complete workflow examples:
 - **Microservices**: Complex service orchestration with multiple branches
 - **SavePoint Demo**: Demonstrates SavePoint functionality and rollback
 - **Rollback Demo**: Shows full rollback mechanism with OnFailure handlers
+- **Human-in-the-loop**: Interactive workflows with human decision points
 
 Run examples:
 ```bash
@@ -212,6 +214,8 @@ cd examples/data_pipeline && go run main.go
 cd examples/microservices && go run main.go
 cd examples/savepoint_demo && go run main.go
 cd examples/rollback_demo && go run main.go
+cd examples/human_in_the_loop__approved && go run main.go
+cd examples/human_in_the_loop__rejected && go run main.go
 ```
 
 ## Integration Tests
@@ -253,6 +257,7 @@ Available migrations:
 - `003_add_compensation_retry_count.up.sql`: compensation step status and compensation_retry_count added
 - `004_add_compensation_to_views.up.sql`: active_workflows view updated
 - `005_add_idempotency_key_to_steps.up.sql`: Idempotency Key added to step table
+- `006_add_human_in_the_loop_step.up.sql`: Human-in-the-loop step support and decision tracking
 
 ## Known Issues
 

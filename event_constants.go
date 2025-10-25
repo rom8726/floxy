@@ -35,4 +35,7 @@ const (
 	KeySuccess       = "success"
 	KeyReason        = "reason"
 	KeyResult        = "result"
+	KeyDecision      = "decision"
+	KeyDecidedBy     = "decided_by"
+	KeyMessage       = "message"
 )

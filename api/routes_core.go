@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/rom8726/floxy"
 )
 
@@ -64,8 +62,7 @@ func HandleGetWorkflowDefinitions(store floxy.Store) func(http.ResponseWriter, *
 
 		definitions, err := store.GetWorkflowDefinitions(ctx)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow definitions: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow definitions: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -82,13 +79,13 @@ func HandleGetWorkflowDefinition(store floxy.Store) func(http.ResponseWriter, *h
 
 		definition, err := store.GetWorkflowDefinition(ctx, id)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, "Workflow definition not found", http.StatusNotFound)
+			if errors.Is(err, floxy.ErrEntityNotFound) {
+				WriteErrorResponse(w, errors.New("workflow definition not found"), http.StatusNotFound)
 
 				return
 			}
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow definition: %v", err),
-				http.StatusInternalServerError)
+
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow definition: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -106,20 +103,20 @@ func HandleGetWorkflowInstances(store floxy.Store) func(http.ResponseWriter, *ht
 		// First check if workflow exists
 		_, err := store.GetWorkflowDefinition(ctx, workflowID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, "Workflow not found", http.StatusNotFound)
+			if errors.Is(err, floxy.ErrEntityNotFound) {
+				WriteErrorResponse(w, errors.New("workflow not found"), http.StatusNotFound)
 
 				return
 			}
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow: %v", err), http.StatusInternalServerError)
+
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow: %w", err), http.StatusInternalServerError)
 
 			return
 		}
 
 		instances, err := store.GetWorkflowInstances(ctx, workflowID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow instances: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow instances: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -135,7 +132,7 @@ func HandleGetAllInstances(store floxy.Store) func(http.ResponseWriter, *http.Re
 
 		instances, err := store.GetAllWorkflowInstances(ctx)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch instances: %v", err), http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch instances: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -152,20 +149,20 @@ func HandleGetWorkflowInstance(store floxy.Store) func(http.ResponseWriter, *htt
 
 		instanceID, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			http.Error(w, "Invalid instance ID", http.StatusBadRequest)
+			WriteErrorResponse(w, errors.New("invalid instance ID"), http.StatusBadRequest)
 
 			return
 		}
 
 		instance, err := store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			if errors.Is(err, floxy.ErrEntityNotFound) {
+				WriteErrorResponse(w, errors.New("workflow instance not found"), http.StatusNotFound)
 
 				return
 			}
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err),
-				http.StatusInternalServerError)
+
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow instance: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -182,7 +179,7 @@ func HandleGetWorkflowSteps(store floxy.Store) func(http.ResponseWriter, *http.R
 
 		instanceID, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			http.Error(w, "Invalid instance ID", http.StatusBadRequest)
+			WriteErrorResponse(w, errors.New("invalid instance ID"), http.StatusBadRequest)
 
 			return
 		}
@@ -190,22 +187,20 @@ func HandleGetWorkflowSteps(store floxy.Store) func(http.ResponseWriter, *http.R
 		// First check if instance exists
 		_, err = store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			if errors.Is(err, floxy.ErrEntityNotFound) {
+				WriteErrorResponse(w, errors.New("workflow instance not found"), http.StatusNotFound)
 
 				return
 			}
 
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow instance: %w", err), http.StatusInternalServerError)
 
 			return
 		}
 
 		steps, err := store.GetWorkflowSteps(ctx, instanceID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow steps: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow steps: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -222,7 +217,7 @@ func HandleGetWorkflowEvents(store floxy.Store) func(http.ResponseWriter, *http.
 
 		instanceID, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			http.Error(w, "Invalid instance ID", http.StatusBadRequest)
+			WriteErrorResponse(w, errors.New("invalid instance ID"), http.StatusBadRequest)
 
 			return
 		}
@@ -230,22 +225,20 @@ func HandleGetWorkflowEvents(store floxy.Store) func(http.ResponseWriter, *http.
 		// First check if instance exists
 		_, err = store.GetInstance(ctx, instanceID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				http.Error(w, "Workflow instance not found", http.StatusNotFound)
+			if errors.Is(err, floxy.ErrEntityNotFound) {
+				WriteErrorResponse(w, errors.New("workflow instance not found"), http.StatusNotFound)
 
 				return
 			}
 
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow instance: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow instance: %w", err), http.StatusInternalServerError)
 
 			return
 		}
 
 		events, err := store.GetWorkflowEvents(ctx, instanceID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow events: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow events: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -261,8 +254,7 @@ func HandleGetStats(store floxy.Store) func(http.ResponseWriter, *http.Request) 
 
 		stats, err := store.GetWorkflowStats(ctx)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch workflow stats: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow stats: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -278,8 +270,7 @@ func HandleGetSummaryStats(store floxy.Store) func(http.ResponseWriter, *http.Re
 
 		stats, err := store.GetSummaryStats(ctx)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch summary stats: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch summary stats: %w", err), http.StatusInternalServerError)
 
 			return
 		}
@@ -295,8 +286,7 @@ func HandleGetActiveInstances(store floxy.Store) func(http.ResponseWriter, *http
 
 		instances, err := store.GetActiveInstances(ctx)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to fetch active instances: %v", err),
-				http.StatusInternalServerError)
+			WriteErrorResponse(w, fmt.Errorf("failed to fetch active instances: %w", err), http.StatusInternalServerError)
 
 			return
 		}
