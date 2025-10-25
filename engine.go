@@ -710,8 +710,7 @@ func (engine *Engine) handleStepSuccess(
 	next bool,
 ) error {
 	// For human steps waiting for decision, don't update status
-	if stepDef.Type == StepTypeHuman &&
-		(step.Status == StepStatusWaitingDecision || step.Status == StepStatusPending) {
+	if stepDef.Type == StepTypeHuman && step.Status == StepStatusWaitingDecision {
 		// Don't continue execution, wait for human decision
 		return nil
 	}
