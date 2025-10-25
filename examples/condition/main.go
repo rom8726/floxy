@@ -66,10 +66,10 @@ func main() {
 
 	// Create a store and transaction manager
 	store := floxy.NewStore(pool)
-	txManager := floxy.NewTxManager(pool)
 
 	// Create engine
-	engine := floxy.NewEngine(txManager, store)
+	engine := floxy.NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})

@@ -281,8 +281,8 @@ func main() {
 	}
 
 	store := floxy.NewStore(pool)
-	txManager := floxy.NewTxManager(pool)
-	engine := floxy.NewEngine(txManager, store)
+	engine := floxy.NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	engine.RegisterHandler(&DataExtractorHandler{})
 	engine.RegisterHandler(&DataValidatorHandler{})

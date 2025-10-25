@@ -43,4 +43,5 @@ const (
 	KeyDecidedBy     = "decided_by"
 	KeyMessage       = "message"
 	KeyRequestedBy   = "requested_by"
+	KeyCancelType    = "cancel_type"
 )
