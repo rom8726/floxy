@@ -13,8 +13,10 @@ import (
 func TestNewEngine(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
 
-	engine := NewEngine(mockTxManager, mockStore)
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	assert.NotNil(t, engine)
 	assert.Equal(t, mockTxManager, engine.txManager)
@@ -26,7 +28,10 @@ func TestNewEngine(t *testing.T) {
 func TestEngine_RegisterHandler(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	mockHandler := NewMockStepHandler(t)
 	mockHandler.EXPECT().Name().Return("test-handler")
@@ -40,7 +45,10 @@ func TestEngine_RegisterHandler(t *testing.T) {
 func TestEngine_RegisterWorkflow_ValidDefinition(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	definition := &WorkflowDefinition{
 		ID:   "test-workflow",
@@ -68,7 +76,10 @@ func TestEngine_RegisterWorkflow_ValidDefinition(t *testing.T) {
 func TestEngine_RegisterWorkflow_InvalidDefinition(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	tests := []struct {
 		name       string
@@ -218,7 +229,9 @@ func TestEngine_RegisterWorkflow_InvalidDefinition(t *testing.T) {
 func TestEngine_Start_Success(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workflowID := "test-workflow"
 	input := json.RawMessage(`{"key": "value"}`)
@@ -270,7 +283,9 @@ func TestEngine_Start_Success(t *testing.T) {
 func TestEngine_Start_GetDefinitionError(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workflowID := "test-workflow"
 	input := json.RawMessage(`{"key": "value"}`)
@@ -291,7 +306,9 @@ func TestEngine_Start_GetDefinitionError(t *testing.T) {
 func TestEngine_Start_CreateInstanceError(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workflowID := "test-workflow"
 	input := json.RawMessage(`{"key": "value"}`)
@@ -329,7 +346,9 @@ func TestEngine_Start_CreateInstanceError(t *testing.T) {
 func TestEngine_Start_NoStartStep(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workflowID := "test-workflow"
 	input := json.RawMessage(`{"key": "value"}`)
@@ -376,7 +395,9 @@ func TestEngine_Start_NoStartStep(t *testing.T) {
 func TestEngine_ExecuteNext_NoQueueItem(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workerID := "worker-1"
 
@@ -394,7 +415,9 @@ func TestEngine_ExecuteNext_NoQueueItem(t *testing.T) {
 func TestEngine_ExecuteNext_DequeueError(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workerID := "worker-1"
 
@@ -413,7 +436,9 @@ func TestEngine_ExecuteNext_DequeueError(t *testing.T) {
 func TestEngine_ExecuteNext_StepNotFound(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	workerID := "worker-1"
 	instanceID := int64(123)
@@ -451,7 +476,9 @@ func TestEngine_ExecuteNext_StepNotFound(t *testing.T) {
 func TestEngine_ExecuteTask_Success(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -497,7 +524,9 @@ func TestEngine_ExecuteTask_Success(t *testing.T) {
 func TestEngine_ExecuteTask_HandlerNotFound(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -536,7 +565,9 @@ func TestEngine_ExecuteTask_HandlerNotFound(t *testing.T) {
 func TestEngine_ExecuteSavePoint_Success(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -592,7 +623,9 @@ func TestEngine_ExecuteSavePoint_Success(t *testing.T) {
 func TestEngine_ExecuteFork_Success(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -675,7 +708,9 @@ func TestEngine_ExecuteFork_Success(t *testing.T) {
 func TestEngine_ExecuteJoin_NotReady(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -719,7 +754,9 @@ func TestEngine_ExecuteJoin_NotReady(t *testing.T) {
 func TestEngine_ExecuteJoin_Success(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -789,7 +826,9 @@ func TestEngine_ExecuteJoin_Success(t *testing.T) {
 func TestEngine_ExecuteJoin_WithFailures(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -856,7 +895,9 @@ func TestEngine_ExecuteJoin_WithFailures(t *testing.T) {
 func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -923,7 +964,9 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 func TestEngine_HandleStepFailure_WithRetries(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -968,7 +1011,9 @@ func TestEngine_HandleStepFailure_WithRetries(t *testing.T) {
 func TestEngine_HandleStepFailure_NoRetriesLeft(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -1025,7 +1070,9 @@ func TestEngine_HandleStepFailure_NoRetriesLeft(t *testing.T) {
 func TestEngine_HandleStepFailure_WithOnFailure(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	stepID := int64(456)
@@ -1089,7 +1136,9 @@ func TestEngine_HandleStepFailure_WithOnFailure(t *testing.T) {
 func TestEngine_GetStatus(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	expectedInstance := &WorkflowInstance{
@@ -1109,7 +1158,9 @@ func TestEngine_GetStatus(t *testing.T) {
 func TestEngine_GetSteps(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	instanceID := int64(123)
 	expectedSteps := []WorkflowStep{
@@ -1138,7 +1189,9 @@ func TestEngine_GetSteps(t *testing.T) {
 func TestEngine_ValidateDefinition_Valid(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	definition := &WorkflowDefinition{
 		ID:   "test-workflow",
@@ -1178,7 +1231,9 @@ func TestEngine_ValidateDefinition_Valid(t *testing.T) {
 func TestEngine_ValidateDefinition_ComplexWorkflow(t *testing.T) {
 	mockTxManager := NewMockTxManager(t)
 	mockStore := NewMockStore(t)
-	engine := NewEngine(mockTxManager, mockStore)
+	mockStore.EXPECT().GetCancelRequest(mock.Anything, mock.Anything).Return(nil, ErrEntityNotFound).Maybe()
+	engine := NewEngine(nil, mockStore, WithEngineTxManager(mockTxManager))
+	defer engine.Shutdown()
 
 	definition := &WorkflowDefinition{
 		ID:   "complex-workflow",

@@ -160,12 +160,10 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	// Create store and transaction manager
+	// Create a store and transaction manager
 	store := floxy.NewStore(pool)
-	txManager := floxy.NewTxManager(pool)
-
-	// Create engine
-	engine := floxy.NewEngine(txManager, store)
+	engine := floxy.NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&PaymentHandler{})

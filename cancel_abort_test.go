@@ -19,8 +19,8 @@ func TestCancelWorkflow(t *testing.T) {
 
 	ctx := context.Background()
 	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -55,6 +55,9 @@ func TestCancelWorkflow(t *testing.T) {
 	reason := "User requested cancellation"
 	err = engine.CancelWorkflow(ctx, instanceID, requestedBy, reason)
 	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+	_, _ = engine.ExecuteNext(ctx, "worker1")
 
 	// Check final status - should be cancelled
 	status, err := engine.GetStatus(ctx, instanceID)
@@ -96,8 +99,8 @@ func TestCancelWorkflowTerminalState(t *testing.T) {
 
 	ctx := context.Background()
 	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -131,6 +134,10 @@ func TestCancelWorkflowTerminalState(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already in terminal state")
 
+	time.Sleep(time.Second)
+	_, _ = engine.ExecuteNext(ctx, "worker1")
+	time.Sleep(time.Second)
+
 	// Check status is still completed
 	status, err := engine.GetStatus(ctx, instanceID)
 	require.NoError(t, err)
@@ -146,8 +153,8 @@ func TestAbortWorkflow(t *testing.T) {
 
 	ctx := context.Background()
 	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -182,6 +189,9 @@ func TestAbortWorkflow(t *testing.T) {
 	reason := "Critical error detected"
 	err = engine.AbortWorkflow(ctx, instanceID, requestedBy, reason)
 	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+	_, _ = engine.ExecuteNext(ctx, "worker1")
 
 	// Check final status - should be aborted
 	status, err := engine.GetStatus(ctx, instanceID)
@@ -223,8 +233,8 @@ func TestAbortWorkflowTerminalState(t *testing.T) {
 
 	ctx := context.Background()
 	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -273,8 +283,8 @@ func TestCancelWorkflowWithCompensation(t *testing.T) {
 
 	ctx := context.Background()
 	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(pool, store)
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -310,6 +320,9 @@ func TestCancelWorkflowWithCompensation(t *testing.T) {
 	reason := "User requested cancellation with compensation"
 	err = engine.CancelWorkflow(ctx, instanceID, requestedBy, reason)
 	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+	_, _ = engine.ExecuteNext(ctx, "worker1")
 
 	// Check final status - should be cancelled
 	status, err := engine.GetStatus(ctx, instanceID)
@@ -347,7 +360,11 @@ func (h *SlowTestHandler) Name() string { return "slow-test" }
 
 func (h *SlowTestHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
 	// Simulate slow operation
-	time.Sleep(2 * time.Second)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(3 * time.Second):
+	}
 
 	var data map[string]any
 	if err := json.Unmarshal(input, &data); err != nil {

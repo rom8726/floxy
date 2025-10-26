@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,7 +246,8 @@ func TestEvaluateConditionWithRealWorkflow(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	defer engine.Shutdown()
 
 	engine.RegisterHandler(&ConditionTestHandler{})
 

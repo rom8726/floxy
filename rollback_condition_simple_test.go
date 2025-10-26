@@ -20,7 +20,8 @@ func TestRollbackConditionSimple(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -101,7 +102,8 @@ func TestRollbackConditionWithFailure(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(txManager, store)
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	defer engine.Shutdown()
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
