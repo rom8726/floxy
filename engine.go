@@ -27,10 +27,10 @@ type Engine struct {
 	shutdownOnce         sync.Once
 }
 
-func NewEngine(pool *pgxpool.Pool, store Store, opts ...EngineOption) *Engine {
+func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 	engine := &Engine{
 		txManager:            NewTxManager(pool),
-		store:                store,
+		store:                NewStore(pool),
 		handlers:             make(map[string]StepHandler),
 		cancelContexts:       make(map[int64]context.CancelFunc),
 		shutdownCh:           make(chan struct{}),

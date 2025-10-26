@@ -29,8 +29,9 @@ floxy means "flow" + "flux" + "tiny".
 - **Parallel Execution**: Fork/Join patterns for concurrent workflow steps
 - **Error Handling**: Automatic retry mechanisms and failure compensation
 - **SavePoints**: Rollback to specific points in workflow execution
-- **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps.
+- **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps
 - **Human-in-the-loop**: Interactive workflow steps that pause execution for human decisions
+- *Cancel\Abort*: Possibility to cancel workflow with rollback to the root step and immediate abort workflow
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 
@@ -115,8 +116,7 @@ func main() {
     }
     
     // Create engine
-    store := floxy.NewStore(pool)
-    engine := floxy.NewEngine(pool, store)
+    engine := floxy.NewEngine(pool)
 	defer engine.Shutdown()
     
     // Register step handlers
@@ -256,6 +256,7 @@ Integration tests cover:
 - **Microservices**: Complex orchestration with multiple service calls
 - **SavePoint Demo**: SavePoint functionality with conditional failures
 - **Rollback Demo**: Full rollback mechanism testing
+- **Human-in-the-loop**: Make decisions (confirm/reject)
 
 ## Database Migrations
 
@@ -275,6 +276,7 @@ Available migrations:
 - `004_add_compensation_to_views.up.sql`: active_workflows view updated
 - `005_add_idempotency_key_to_steps.up.sql`: Idempotency Key added to step table
 - `006_add_human_in_the_loop_step.up.sql`: Human-in-the-loop step support and decision tracking
+- `007_add_workflow_cancel_requests_table.up.sql`: Cancel requests table
 
 ## Known Issues
 

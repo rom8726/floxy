@@ -280,8 +280,7 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	store := floxy.NewStore(pool)
-	engine := floxy.NewEngine(pool, store)
+	engine := floxy.NewEngine(pool)
 	defer engine.Shutdown()
 
 	engine.RegisterHandler(&DataExtractorHandler{})

@@ -66,9 +66,7 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -149,9 +147,7 @@ func TestIntegration_Ecommerce(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -229,9 +225,7 @@ func TestIntegration_Microservices(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -327,9 +321,7 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -417,9 +409,7 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -525,9 +515,7 @@ func TestIntegration_Condition__true(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -598,9 +586,7 @@ func TestIntegration_Condition__false(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -671,9 +657,7 @@ func TestIntegration_Condition_Logic(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers

@@ -17,3 +17,9 @@ func WithEngineTxManager(txManager TxManager) EngineOption {
 		engine.txManager = txManager
 	}
 }
+
+func WithEngineStore(store Store) EngineOption {
+	return func(engine *Engine) {
+		engine.store = store
+	}
+}

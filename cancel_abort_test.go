@@ -18,8 +18,7 @@ func TestCancelWorkflow(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	engine := NewEngine(pool, store)
+	engine := NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -98,8 +97,7 @@ func TestCancelWorkflowTerminalState(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	engine := NewEngine(pool, store)
+	engine := NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -152,8 +150,7 @@ func TestAbortWorkflow(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	engine := NewEngine(pool, store)
+	engine := NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -232,8 +229,7 @@ func TestAbortWorkflowTerminalState(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	engine := NewEngine(pool, store)
+	engine := NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -282,8 +278,7 @@ func TestCancelWorkflowWithCompensation(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	store := NewStore(pool)
-	engine := NewEngine(pool, store)
+	engine := NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Register handlers

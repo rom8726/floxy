@@ -186,8 +186,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	store := floxy.NewStore(pool)
-	engine := floxy.NewEngine(pool, store)
+	engine := floxy.NewEngine(pool)
 	defer engine.Shutdown()
 
 	// Run migrations
