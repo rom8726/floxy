@@ -710,7 +710,8 @@ SELECT id, instance_id, step_name, step_type, status, input, output, error,
 FROM workflows.workflow_steps
 WHERE instance_id = $1 
     AND status IN ('pending', 'running', 'waiting_decision')
-ORDER BY created_at DESC`
+ORDER BY created_at DESC
+FOR UPDATE SKIP LOCKED`
 
 	rows, err := executor.Query(ctx, query, instanceID)
 	if err != nil {
