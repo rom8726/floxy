@@ -45,8 +45,6 @@ Engine specification: [ENGINE](docs/ENGINE_SPEC.md)
 
 UI for visualizing workflows: [UI](https://github.com/rom8726/floxy-ui)
 
-> Warning: This engine is ideal for pet projects, but has not been tested in production. Using this in production, you act at your own risk.
-
 ## Why Floxy?
 
 **Floxy** is a lightweight, embeddable workflow engine for Go developers.
