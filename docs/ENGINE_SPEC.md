@@ -420,8 +420,9 @@ err := engine.CancelWorkflow(ctx, instanceID, "admin@company.com", "User request
 **Behavior:**
 1. **Status Check** — Verifies workflow is not in terminal state
 2. **Active Steps** — Stops all currently running steps (`running` → `skipped`)
-3. **Compensation** — Executes rollback chain for completed steps
-4. **Final Status** — Sets workflow to `cancelled`
+3. **Parallel Steps** — Cancels all parallel/fork steps simultaneously using step-level context tracking
+4. **Compensation** — Executes rollback chain for completed steps
+5. **Final Status** — Sets workflow to `cancelled`
 
 **Parameters:**
 - `instanceID` — ID of the workflow instance to cancel
@@ -445,8 +446,9 @@ err := engine.AbortWorkflow(ctx, instanceID, "system@company.com", "Critical err
 **Behavior:**
 1. **Status Check** — Verifies workflow is not in terminal state
 2. **Active Steps** — Stops all currently running steps (`running` → `skipped`)
-3. **No Compensation** — Skips rollback process entirely
-4. **Final Status** — Sets workflow to `aborted`
+3. **Parallel Steps** — Aborts all parallel/fork steps simultaneously using step-level context tracking
+4. **No Compensation** — Skips rollback process entirely
+5. **Final Status** — Sets workflow to `aborted`
 
 **Use Cases:**
 - Critical system errors requiring immediate stop
@@ -454,7 +456,37 @@ err := engine.AbortWorkflow(ctx, instanceID, "system@company.com", "Critical err
 - Resource exhaustion
 - External system failures
 
-### 9.4 Workflow States
+### 9.4 Parallel Steps Handling
+
+Floxy Engine provides robust support for canceling/aborting workflows with parallel execution:
+
+**Context Tracking:**
+- Each step execution registers its own cancellation context
+- Multiple parallel steps can be tracked simultaneously per workflow instance
+- Context registration uses `instanceID + stepID` for unique identification
+
+**Parallel Step Cancellation:**
+- **Fork Steps** — All parallel branches are cancelled simultaneously
+- **Join Steps** — Cancelled if any of their waiting steps are cancelled
+- **Nested Parallelism** — Deep parallel structures are fully supported
+
+**Example Parallel Workflow Cancellation:**
+```go
+// Workflow: start -> fork(step1, step2) -> join -> final
+// When cancelled:
+// - step1 and step2 contexts are cancelled simultaneously
+// - join step is skipped
+// - final step is skipped
+// - Compensation runs for completed steps
+```
+
+**Implementation Details:**
+- Uses `map[instanceID]map[stepID]CancelFunc` for context storage
+- `processCancelRequests()` iterates through all contexts for an instance
+- All parallel contexts are cancelled atomically
+- Memory cleanup happens automatically when steps complete
+
+### 9.5 Workflow States
 
 Both operations respect workflow terminal states:
 
@@ -467,7 +499,7 @@ Both operations respect workflow terminal states:
 | `cancelled` | ❌ | ❌ | Error: already in terminal state |
 | `aborted` | ❌ | ❌ | Error: already in terminal state |
 
-### 9.5 Step Status Changes
+### 9.6 Step Status Changes
 
 During cancellation/abortion, step statuses change as follows:
 
@@ -484,7 +516,7 @@ During cancellation/abortion, step statuses change as follows:
 - `confirmed` → `rolled_back` (during Cancel)
 - `rejected` → unchanged
 
-### 9.6 Event Logging
+### 9.7 Event Logging
 
 All control operations generate comprehensive event logs:
 
@@ -512,7 +544,7 @@ Event: workflow_aborted
 Data: {requested_by: "system@company.com", reason: "Critical error detected"}
 ```
 
-### 9.7 Example Usage
+### 9.8 Example Usage
 
 **Graceful Cancellation with Compensation:**
 ```go
@@ -542,6 +574,22 @@ func handleSecurityViolation(ctx context.Context, instanceID int64) error {
     reason := "Security policy violation detected"
     return engine.AbortWorkflow(ctx, instanceID, "security-monitor", reason)
 }
+```
+
+**Parallel Workflow Cancellation:**
+```go
+// Cancel workflow with parallel steps
+func cancelParallelWorkflow(ctx context.Context, instanceID int64, userID string) error {
+    reason := "User cancelled parallel processing workflow"
+    return engine.CancelWorkflow(ctx, instanceID, userID, reason)
+}
+
+// Example workflow: start -> fork(process1, process2) -> join -> final
+// When cancelled:
+// - Both process1 and process2 are cancelled simultaneously
+// - Join step is skipped
+// - Final step is skipped
+// - Compensation runs for completed steps (start, fork)
 ```
 
 **API Integration:**
@@ -576,6 +624,37 @@ func monitorWorkflows(ctx context.Context) {
         }
         if instance.Status == StatusAborted {
             alertManager.SendAlert("Workflow aborted", instance.ID)
+        }
+    }
+}
+```
+
+**Testing Parallel Cancellation:**
+```go
+func TestCancelWorkflowWithParallelSteps(t *testing.T) {
+    // Create workflow with parallel steps
+    workflowDef, err := NewBuilder("test_parallel", 1).
+        Step("start", "handler").
+        Fork("fork", func(branch1 *Builder) {
+            branch1.Step("parallel1", "slow-handler")
+        }, func(branch2 *Builder) {
+            branch2.Step("parallel2", "slow-handler")
+        }).
+        JoinStep("join", []string{"parallel1", "parallel2"}, JoinStrategyAll).
+        Then("final", "handler").
+        Build()
+    
+    // Start workflow and let parallel steps begin execution
+    instanceID, _ := engine.Start(ctx, "test_parallel-v1", input)
+    
+    // Cancel while parallel steps are running
+    err = engine.CancelWorkflow(ctx, instanceID, "test-user", "test cancellation")
+    
+    // Verify all parallel steps were cancelled
+    steps, _ := engine.GetSteps(ctx, instanceID)
+    for _, step := range steps {
+        if step.StepName == "parallel1" || step.StepName == "parallel2" {
+            assert.Equal(t, StepStatusRolledBack, step.Status)
         }
     }
 }
