@@ -229,8 +229,7 @@ func main() {
 
 	// Process workflow
 	fmt.Println("\n=== Processing Workflow ===")
-	for i := range 100 {
-		i = i
+	for range 100 {
 		// Process workflow
 		isEmpty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {

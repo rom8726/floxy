@@ -379,8 +379,7 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process workflows
-	for i := range 100 {
-		i = i
+	for range 100 {
 		empty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			t.Logf("ExecuteNext error: %v", err)

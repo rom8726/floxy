@@ -240,8 +240,7 @@ func main() {
 
 	// Process workflows
 	fmt.Println("\n=== Processing Workflows ===")
-	for i := range 100 {
-		i = i
+	for range 100 {
 		isEmpty, err := engine.ExecuteNext(ctx, "worker1")
 		if err != nil {
 			fmt.Printf("ExecuteNext: %v\n", err)
