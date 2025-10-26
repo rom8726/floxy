@@ -31,7 +31,7 @@ floxy means "flow" + "flux" + "tiny".
 - **SavePoints**: Rollback to specific points in workflow execution
 - **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps
 - **Human-in-the-loop**: Interactive workflow steps that pause execution for human decisions
-- *Cancel\Abort*: Possibility to cancel workflow with rollback to the root step and immediate abort workflow
+- **Cancel\Abort**: Possibility to cancel workflow with rollback to the root step and immediate abort workflow
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 

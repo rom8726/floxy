@@ -31,20 +31,28 @@
   - [8.6 Workflow Behavior](#86-workflow-behavior)
   - [8.7 Decision Tracking](#87-decision-tracking)
   - [8.8 Example Usage](#88-example-usage)
-- [9. Condition Steps](#9-condition-steps)
+- [9. Workflow Control Operations](#9-workflow-control-operations)
   - [9.1 Overview](#91-overview)
-  - [9.2 Condition Expression](#92-condition-expression)
-  - [9.3 Condition Step Definition](#93-condition-step-definition)
-  - [9.4 Execution Flow](#94-execution-flow)
-  - [9.5 Data Access](#95-data-access)
-  - [9.6 Type Safety](#96-type-safety)
-- [10. State Determinism](#10-state-determinism)
-- [11. Failure Semantics](#11-failure-semantics)
-- [12. Example Saga Flow](#12-example-saga-flow)
-  - [12.1 Basic Saga](#121-basic-saga)
-  - [12.2 Saga with Condition Steps](#122-saga-with-condition-steps)
-- [13. Design Principles](#13-design-principles)
-- [14. Summary](#14-summary)
+  - [9.2 Cancel Workflow](#92-cancel-workflow)
+  - [9.3 Abort Workflow](#93-abort-workflow)
+  - [9.4 Workflow States](#94-workflow-states)
+  - [9.5 Step Status Changes](#95-step-status-changes)
+  - [9.6 Event Logging](#96-event-logging)
+  - [9.7 Example Usage](#97-example-usage)
+- [10. Condition Steps](#10-condition-steps)
+  - [10.1 Overview](#101-overview)
+  - [10.2 Condition Expression](#102-condition-expression)
+  - [10.3 Condition Step Definition](#103-condition-step-definition)
+  - [10.4 Execution Flow](#104-execution-flow)
+  - [10.5 Data Access](#105-data-access)
+  - [10.6 Type Safety](#106-type-safety)
+- [11. State Determinism](#11-state-determinism)
+- [12. Failure Semantics](#12-failure-semantics)
+- [13. Example Saga Flow](#13-example-saga-flow)
+  - [13.1 Basic Saga](#131-basic-saga)
+  - [13.2 Saga with Condition Steps](#132-saga-with-condition-steps)
+- [14. Design Principles](#14-design-principles)
+- [15. Summary](#15-summary)
 
 ## 1. Overview
 
@@ -61,6 +69,7 @@ Key features:
 * **Conditional branching** with `Condition` steps.
 * **Smart rollback** for parallel flows with condition steps.
 * **Human-in-the-loop** interactive workflow steps.
+* **Workflow control operations** for cancellation and abortion.
 * Unified runtime for both normal and compensation execution.
 
 ---
@@ -389,13 +398,198 @@ err = engine.MakeHumanDecision(ctx, humanStepID, "manager@company.com",
 
 ---
 
-## 9. Condition Steps
+## 9. Workflow Control Operations
 
 ### 9.1 Overview
 
+Floxy Engine provides two primary workflow control operations for managing running workflows:
+
+- **Cancel Workflow** — Gracefully cancels a workflow with compensation
+- **Abort Workflow** — Immediately stops a workflow without compensation
+
+These operations allow external systems or users to control workflow execution based on business requirements or error conditions.
+
+### 9.2 Cancel Workflow
+
+The `CancelWorkflow` operation provides graceful cancellation with rollback semantics:
+
+```go
+err := engine.CancelWorkflow(ctx, instanceID, "admin@company.com", "User requested cancellation")
+```
+
+**Behavior:**
+1. **Status Check** — Verifies workflow is not in terminal state
+2. **Active Steps** — Stops all currently running steps (`running` → `skipped`)
+3. **Compensation** — Executes rollback chain for completed steps
+4. **Final Status** — Sets workflow to `cancelled`
+
+**Parameters:**
+- `instanceID` — ID of the workflow instance to cancel
+- `requestedBy` — Identifier of the person/system requesting cancellation
+- `reason` — Human-readable reason for cancellation
+
+**Compensation Process:**
+- Finds the last completed step
+- Executes rollback chain from that step to root
+- Runs `OnFailure` handlers for each step in reverse order
+- If compensation fails, workflow status becomes `failed`
+
+### 9.3 Abort Workflow
+
+The `AbortWorkflow` operation provides immediate termination without compensation:
+
+```go
+err := engine.AbortWorkflow(ctx, instanceID, "system@company.com", "Critical error detected")
+```
+
+**Behavior:**
+1. **Status Check** — Verifies workflow is not in terminal state
+2. **Active Steps** — Stops all currently running steps (`running` → `skipped`)
+3. **No Compensation** — Skips rollback process entirely
+4. **Final Status** — Sets workflow to `aborted`
+
+**Use Cases:**
+- Critical system errors requiring immediate stop
+- Security violations
+- Resource exhaustion
+- External system failures
+
+### 9.4 Workflow States
+
+Both operations respect workflow terminal states:
+
+| Current Status | Cancel | Abort | Result |
+|----------------|--------|-------|--------|
+| `running` | ✅ | ✅ | Operation succeeds |
+| `pending` | ✅ | ✅ | Operation succeeds |
+| `completed` | ❌ | ❌ | Error: already in terminal state |
+| `failed` | ❌ | ❌ | Error: already in terminal state |
+| `cancelled` | ❌ | ❌ | Error: already in terminal state |
+| `aborted` | ❌ | ❌ | Error: already in terminal state |
+
+### 9.5 Step Status Changes
+
+During cancellation/abortion, step statuses change as follows:
+
+**Active Steps (running/pending):**
+- Status → `skipped`
+- Reason → "Stopped due to workflow cancellation/abort"
+
+**Completed Steps (during Cancel only):**
+- Status → `rolled_back` (after successful compensation)
+- Status → `failed` (if compensation fails)
+
+**Human Steps:**
+- `waiting_decision` → `skipped`
+- `confirmed` → `rolled_back` (during Cancel)
+- `rejected` → unchanged
+
+### 9.6 Event Logging
+
+All control operations generate comprehensive event logs:
+
+**Cancel Events:**
+```
+Event: cancellation_started
+Data: {requested_by: "admin@company.com", reason: "User requested cancellation"}
+
+Event: step_failed
+Data: {step_name: "active_step", reason: "workflow_stopped"}
+
+Event: workflow_cancelled
+Data: {requested_by: "admin@company.com", reason: "User requested cancellation"}
+```
+
+**Abort Events:**
+```
+Event: abort_started
+Data: {requested_by: "system@company.com", reason: "Critical error detected"}
+
+Event: step_failed
+Data: {step_name: "active_step", reason: "workflow_stopped"}
+
+Event: workflow_aborted
+Data: {requested_by: "system@company.com", reason: "Critical error detected"}
+```
+
+### 9.7 Example Usage
+
+**Graceful Cancellation with Compensation:**
+```go
+// User-initiated cancellation
+func handleUserCancellation(ctx context.Context, instanceID int64, userID string) error {
+    reason := "User requested cancellation via UI"
+    return engine.CancelWorkflow(ctx, instanceID, userID, reason)
+}
+
+// System-initiated cancellation (e.g., timeout)
+func handleTimeoutCancellation(ctx context.Context, instanceID int64) error {
+    reason := "Workflow execution timeout exceeded"
+    return engine.CancelWorkflow(ctx, instanceID, "system", reason)
+}
+```
+
+**Immediate Abortion:**
+```go
+// Critical error handling
+func handleCriticalError(ctx context.Context, instanceID int64, errorMsg string) error {
+    reason := fmt.Sprintf("Critical system error: %s", errorMsg)
+    return engine.AbortWorkflow(ctx, instanceID, "error-handler", reason)
+}
+
+// Security violation
+func handleSecurityViolation(ctx context.Context, instanceID int64) error {
+    reason := "Security policy violation detected"
+    return engine.AbortWorkflow(ctx, instanceID, "security-monitor", reason)
+}
+```
+
+**API Integration:**
+```go
+// REST API endpoint for cancellation
+func cancelWorkflowHandler(w http.ResponseWriter, r *http.Request) {
+    instanceID := getInstanceIDFromPath(r)
+    userID := extractUserFromAuth(r)
+    
+    var req CancelRequest
+    json.NewDecoder(r.Body).Decode(&req)
+    
+    err := engine.CancelWorkflow(r.Context(), instanceID, userID, req.Reason)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    
+    w.WriteHeader(http.StatusNoContent)
+}
+```
+
+**Monitoring and Alerting:**
+```go
+// Monitor workflow states
+func monitorWorkflows(ctx context.Context) {
+    instances, _ := engine.GetActiveInstances(ctx)
+    
+    for _, instance := range instances {
+        if instance.Status == StatusCancelled {
+            alertManager.SendAlert("Workflow cancelled", instance.ID)
+        }
+        if instance.Status == StatusAborted {
+            alertManager.SendAlert("Workflow aborted", instance.ID)
+        }
+    }
+}
+```
+
+---
+
+## 10. Condition Steps
+
+### 10.1 Overview
+
 `StepTypeCondition` enables conditional branching based on runtime data. The condition is evaluated using Go template syntax with built-in comparison functions.
 
-### 9.2 Condition Expression
+### 10.2 Condition Expression
 
 Conditions use Go templates with the following functions:
 
@@ -408,7 +602,7 @@ Conditions use Go templates with the following functions:
 | `ge`     | Greater than or equal          | `{{ ge .age 18 }}`         |
 | `le`     | Less than or equal             | `{{ le .count 10 }}`       |
 
-### 9.3 Condition Step Definition
+### 10.3 Condition Step Definition
 
 ```go
 builder.Condition("check_funds", "{{ gt .balance 100 }}", func(elseBranch *Builder) {
@@ -417,7 +611,7 @@ builder.Condition("check_funds", "{{ gt .balance 100 }}", func(elseBranch *Build
 Then("process_payment", "ProcessPayment")
 ```
 
-### 9.4 Execution Flow
+### 10.4 Execution Flow
 
 1. **Condition Evaluation**: The engine evaluates the condition expression against the current step context.
 2. **Branch Selection**: 
@@ -425,14 +619,14 @@ Then("process_payment", "ProcessPayment")
    - If `false` → execute `Else` step (if defined)
 3. **Context Passing**: The same input context is passed to the selected branch.
 
-### 9.5 Data Access
+### 10.5 Data Access
 
 Conditions can access:
 - **Input data**: `{{ .field_name }}`
 - **Nested objects**: `{{ .user.age }}`
 - **Step context**: `{{ .instance_id }}`, `{{ .step_name }}`
 
-### 9.6 Type Safety
+### 10.6 Type Safety
 
 The engine automatically handles type conversions for numeric comparisons:
 - `int`, `int64`, `float32`, `float64` are all supported
@@ -441,7 +635,7 @@ The engine automatically handles type conversions for numeric comparisons:
 
 ---
 
-## 10. State Determinism
+## 11. State Determinism
 
 Floxy ensures deterministic workflow execution:
 
@@ -452,7 +646,7 @@ Floxy ensures deterministic workflow execution:
 
 ---
 
-## 11. Failure Semantics
+## 12. Failure Semantics
 
 | Scenario               | Behavior                                                |
 |------------------------| ------------------------------------------------------- |
@@ -461,12 +655,14 @@ Floxy ensures deterministic workflow execution:
 | Retries exhausted      | Step → `failed`.                                        |
 | No `OnFailure` defined | Step → `rolled_back`.                                   |
 | SavePoint found        | Rollback stops at save point.                           |
+| Cancel operation       | Step → `skipped`, compensation executed.                |
+| Abort operation        | Step → `skipped`, no compensation.                      |
 
 ---
 
-## 12. Example Saga Flow
+## 13. Example Saga Flow
 
-### 12.1 Basic Saga
+### 13.1 Basic Saga
 
 ```go
 wf := NewBuilder("order_saga", 1).
@@ -489,7 +685,7 @@ Execution sequence:
     * Mark both as `rolled_back`
     * Instance → `failed`
 
-### 12.2 Saga with Condition Steps
+### 13.2 Saga with Condition Steps
 
 ```go
 wf := NewBuilder("smart_order_saga", 1).
@@ -520,7 +716,7 @@ This example demonstrates:
 
 ---
 
-## 13. Design Principles
+## 14. Design Principles
 
 * **Deterministic State Machine** — no flags or side effects outside state transitions.
 * **Declarative Compensation** — rollback is described, not coded imperatively.
@@ -532,10 +728,12 @@ This example demonstrates:
 * **Smart Branch Rollback** — only compensates executed branches in condition steps.
 * **Type-Safe Conditions** — automatic type conversion for numeric comparisons.
 * **Template-Based Logic** — conditions use familiar Go template syntax.
+* **Workflow Control** — external cancellation and abortion capabilities.
+* **Human Integration** — interactive workflow steps with decision tracking.
 
 ---
 
-## 14. Summary
+## 15. Summary
 
 Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 
@@ -544,4 +742,6 @@ Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 * **idempotency-aware** — supports both idempotent and one-shot operations,
 * **conditionally intelligent** — smart branching and rollback for complex workflows,
 * **parallel-safe** — proper handling of condition steps in concurrent flows,
+* **human-integrated** — interactive workflow steps with decision tracking,
+* **controllable** — external cancellation and abortion capabilities,
 * and **easy to extend** with custom step types or policies.
