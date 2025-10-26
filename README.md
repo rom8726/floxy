@@ -116,8 +116,8 @@ func main() {
     
     // Create engine
     store := floxy.NewStore(pool)
-    txManager := floxy.NewTxManager(pool)
-    engine := floxy.NewEngine(txManager, store)
+    engine := floxy.NewEngine(pool, store)
+	defer engine.Shutdown()
     
     // Register step handlers
     engine.RegisterHandler(&PaymentHandler{})

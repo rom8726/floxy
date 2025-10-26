@@ -19,7 +19,7 @@ func TestRollbackConditionActualFailureInParallelBranches(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -117,7 +117,7 @@ func TestRollbackConditionActualFailureInParallelBranchesWithFailure(t *testing.
 	ctx := context.Background()
 	store := NewStore(pool)
 	txManager := NewTxManager(pool)
-	engine := NewEngine(nil, store, WithEngineTxManager(txManager))
+	engine := NewEngine(nil, store, WithEngineTxManager(txManager), WithEngineCancelInterval(time.Minute))
 	defer engine.Shutdown()
 
 	// Register handlers
