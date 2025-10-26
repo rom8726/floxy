@@ -20,7 +20,7 @@ type Engine struct {
 	store                Store
 	handlers             map[string]StepHandler
 	mu                   sync.RWMutex
-	cancelContexts       map[int64]context.CancelFunc // instanceID -> cancel function
+	cancelContexts       map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
 	cancelMu             sync.RWMutex
 	cancelWorkerInterval time.Duration
 	shutdownCh           chan struct{}
@@ -32,7 +32,7 @@ func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 		txManager:            NewTxManager(pool),
 		store:                NewStore(pool),
 		handlers:             make(map[string]StepHandler),
-		cancelContexts:       make(map[int64]context.CancelFunc),
+		cancelContexts:       make(map[int64]map[int64]context.CancelFunc),
 		shutdownCh:           make(chan struct{}),
 		cancelWorkerInterval: defaultCancelWorkerInterval,
 	}
@@ -349,24 +349,38 @@ func (engine *Engine) processCancelRequests() {
 		}
 
 		engine.cancelMu.Lock()
-		if cancelFunc, exists := engine.cancelContexts[instanceID]; exists {
-			cancelFunc()
+		if stepContexts, exists := engine.cancelContexts[instanceID]; exists {
+			for stepID, cancelFunc := range stepContexts {
+				cancelFunc()
+				delete(stepContexts, stepID)
+			}
+
 			delete(engine.cancelContexts, instanceID)
 		}
 		engine.cancelMu.Unlock()
 	}
 }
 
-func (engine *Engine) registerInstanceContext(instanceID int64, cancel context.CancelFunc) {
+func (engine *Engine) registerInstanceContext(instanceID int64, stepID int64, cancel context.CancelFunc) {
 	engine.cancelMu.Lock()
 	defer engine.cancelMu.Unlock()
-	engine.cancelContexts[instanceID] = cancel
+
+	if engine.cancelContexts[instanceID] == nil {
+		engine.cancelContexts[instanceID] = make(map[int64]context.CancelFunc)
+	}
+	engine.cancelContexts[instanceID][stepID] = cancel
 }
 
-func (engine *Engine) unregisterInstanceContext(instanceID int64) {
+func (engine *Engine) unregisterInstanceContext(instanceID int64, stepID int64) {
 	engine.cancelMu.Lock()
 	defer engine.cancelMu.Unlock()
-	delete(engine.cancelContexts, instanceID)
+
+	if stepContexts, exists := engine.cancelContexts[instanceID]; exists {
+		delete(stepContexts, stepID)
+		if len(stepContexts) == 0 {
+			delete(engine.cancelContexts, instanceID)
+		}
+	}
 }
 
 func (engine *Engine) stopActiveSteps(ctx context.Context, instanceID int64) error {
@@ -404,8 +418,8 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	handlerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	engine.registerInstanceContext(instance.ID, cancel)
-	defer engine.unregisterInstanceContext(instance.ID)
+	engine.registerInstanceContext(instance.ID, step.ID, cancel)
+	defer engine.unregisterInstanceContext(instance.ID, step.ID)
 
 	cancelReq, err := engine.store.GetCancelRequest(ctx, instance.ID)
 	if err == nil && cancelReq != nil {
