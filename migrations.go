@@ -21,8 +21,13 @@ const dbSchema = "workflows"
 var migrationFiles embed.FS
 
 // RunMigrations executes all migration files in order
-func RunMigrations(_ context.Context, pool *pgxpool.Pool) error {
+func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	fmt.Println("[floxy] up migrations...")
+
+	_, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+dbSchema)
+	if err != nil {
+		return err
+	}
 
 	connString := pool.Config().ConnString()
 	connStringURL, err := url.Parse(connString)
