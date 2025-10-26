@@ -86,4 +86,7 @@ type Store interface {
 	UpdateStepStatus(ctx context.Context, stepID int64, status StepStatus) error
 	GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error)
 	GetHumanDecisionStepByInstanceID(ctx context.Context, instanceID int64) (*WorkflowStep, error)
+
+	// Cleanup methods
+	CleanupOldWorkflows(ctx context.Context, daysToKeep int) (int64, error)
 }

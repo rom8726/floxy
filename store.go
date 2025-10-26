@@ -971,6 +971,20 @@ LIMIT 1`
 	return &step, nil
 }
 
+func (store *StoreImpl) CleanupOldWorkflows(ctx context.Context, daysToKeep int) (int64, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `SELECT workflows.cleanup_old_workflows($1)`
+
+	var deletedCount int64
+	err := executor.QueryRow(ctx, query, daysToKeep).Scan(&deletedCount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cleanup old workflows: %w", err)
+	}
+
+	return deletedCount, nil
+}
+
 func (store *StoreImpl) getExecutor(ctx context.Context) Tx {
 	if tx := TxFromContext(ctx); tx != nil {
 		return tx
