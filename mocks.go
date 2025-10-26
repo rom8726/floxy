@@ -1534,12 +1534,12 @@ func (_c *MockStore_GetActiveInstances_Call) RunAndReturn(run func(ctx context.C
 	return _c
 }
 
-// GetActiveSteps provides a mock function for the type MockStore
-func (_mock *MockStore) GetActiveSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
+// GetActiveStepsForUpdate provides a mock function for the type MockStore
+func (_mock *MockStore) GetActiveStepsForUpdate(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	ret := _mock.Called(ctx, instanceID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetActiveSteps")
+		panic("no return value specified for GetActiveStepsForUpdate")
 	}
 
 	var r0 []WorkflowStep
@@ -1562,19 +1562,19 @@ func (_mock *MockStore) GetActiveSteps(ctx context.Context, instanceID int64) ([
 	return r0, r1
 }
 
-// MockStore_GetActiveSteps_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSteps'
-type MockStore_GetActiveSteps_Call struct {
+// MockStore_GetActiveStepsForUpdate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveStepsForUpdate'
+type MockStore_GetActiveStepsForUpdate_Call struct {
 	*mock.Call
 }
 
-// GetActiveSteps is a helper method to define mock.On call
+// GetActiveStepsForUpdate is a helper method to define mock.On call
 //   - ctx context.Context
 //   - instanceID int64
-func (_e *MockStore_Expecter) GetActiveSteps(ctx interface{}, instanceID interface{}) *MockStore_GetActiveSteps_Call {
-	return &MockStore_GetActiveSteps_Call{Call: _e.mock.On("GetActiveSteps", ctx, instanceID)}
+func (_e *MockStore_Expecter) GetActiveStepsForUpdate(ctx interface{}, instanceID interface{}) *MockStore_GetActiveStepsForUpdate_Call {
+	return &MockStore_GetActiveStepsForUpdate_Call{Call: _e.mock.On("GetActiveStepsForUpdate", ctx, instanceID)}
 }
 
-func (_c *MockStore_GetActiveSteps_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_GetActiveSteps_Call {
+func (_c *MockStore_GetActiveStepsForUpdate_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_GetActiveStepsForUpdate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1592,12 +1592,12 @@ func (_c *MockStore_GetActiveSteps_Call) Run(run func(ctx context.Context, insta
 	return _c
 }
 
-func (_c *MockStore_GetActiveSteps_Call) Return(workflowSteps []WorkflowStep, err error) *MockStore_GetActiveSteps_Call {
+func (_c *MockStore_GetActiveStepsForUpdate_Call) Return(workflowSteps []WorkflowStep, err error) *MockStore_GetActiveStepsForUpdate_Call {
 	_c.Call.Return(workflowSteps, err)
 	return _c
 }
 
-func (_c *MockStore_GetActiveSteps_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowStep, error)) *MockStore_GetActiveSteps_Call {
+func (_c *MockStore_GetActiveStepsForUpdate_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) ([]WorkflowStep, error)) *MockStore_GetActiveStepsForUpdate_Call {
 	_c.Call.Return(run)
 	return _c
 }

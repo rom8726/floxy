@@ -384,7 +384,7 @@ func (engine *Engine) unregisterInstanceContext(instanceID int64, stepID int64) 
 }
 
 func (engine *Engine) stopActiveSteps(ctx context.Context, instanceID int64) error {
-	activeSteps, err := engine.store.GetActiveSteps(ctx, instanceID)
+	activeSteps, err := engine.store.GetActiveStepsForUpdate(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("get active steps: %w", err)
 	}

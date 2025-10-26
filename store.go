@@ -700,7 +700,7 @@ ORDER BY created_at`
 	return steps, rows.Err()
 }
 
-func (store *StoreImpl) GetActiveSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
+func (store *StoreImpl) GetActiveStepsForUpdate(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	executor := store.getExecutor(ctx)
 
 	const query = `
