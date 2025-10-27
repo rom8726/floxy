@@ -16,25 +16,27 @@ const (
 )
 
 type Engine struct {
-	txManager            TxManager
-	store                Store
-	handlers             map[string]StepHandler
-	mu                   sync.RWMutex
-	cancelContexts       map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
-	cancelMu             sync.RWMutex
-	cancelWorkerInterval time.Duration
-	shutdownCh           chan struct{}
-	shutdownOnce         sync.Once
+	txManager                  TxManager
+	store                      Store
+	handlers                   map[string]StepHandler
+	mu                         sync.RWMutex
+	cancelContexts             map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
+	cancelMu                   sync.RWMutex
+	cancelWorkerInterval       time.Duration
+	shutdownCh                 chan struct{}
+	shutdownOnce               sync.Once
+	humanDecisionWaitingEvents chan HumanDecisionWaitingEvent
 }
 
 func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 	engine := &Engine{
-		txManager:            NewTxManager(pool),
-		store:                NewStore(pool),
-		handlers:             make(map[string]StepHandler),
-		cancelContexts:       make(map[int64]map[int64]context.CancelFunc),
-		shutdownCh:           make(chan struct{}),
-		cancelWorkerInterval: defaultCancelWorkerInterval,
+		txManager:                  NewTxManager(pool),
+		store:                      NewStore(pool),
+		handlers:                   make(map[string]StepHandler),
+		cancelContexts:             make(map[int64]map[int64]context.CancelFunc),
+		shutdownCh:                 make(chan struct{}),
+		cancelWorkerInterval:       defaultCancelWorkerInterval,
+		humanDecisionWaitingEvents: make(chan HumanDecisionWaitingEvent, 100),
 	}
 
 	for _, opt := range opts {
@@ -915,6 +917,16 @@ func (engine *Engine) executeHuman(
 		return nil, false, fmt.Errorf("marshal output: %w", err)
 	}
 
+	event := HumanDecisionWaitingEvent{
+		InstanceID: instance.ID,
+		OutputData: output,
+	}
+
+	select {
+	case engine.humanDecisionWaitingEvents <- event:
+	default:
+	}
+
 	return output, false, nil
 }
 
@@ -1334,6 +1346,10 @@ func (engine *Engine) GetStatus(ctx context.Context, instanceID int64) (Workflow
 
 func (engine *Engine) GetSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	return engine.store.GetStepsByInstance(ctx, instanceID)
+}
+
+func (engine *Engine) HumanDecisionWaitingEvents() <-chan HumanDecisionWaitingEvent {
+	return engine.humanDecisionWaitingEvents
 }
 
 func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {

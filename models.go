@@ -201,3 +201,8 @@ type HumanDecisionRecord struct {
 	DecidedAt  time.Time     `json:"decided_at"`
 	CreatedAt  time.Time     `json:"created_at"`
 }
+
+type HumanDecisionWaitingEvent struct {
+	InstanceID int64           `json:"instance_id"`
+	OutputData json.RawMessage `json:"output_data"`
+}
