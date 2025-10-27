@@ -501,7 +501,7 @@ SELECT
     (SELECT COUNT(*) FROM workflows.workflow_steps WHERE instance_id = wi.id AND status = 'rolled_back') as rolled_back_steps
 FROM workflows.workflow_instances wi
 JOIN workflows.workflow_definitions w ON wi.workflow_id = w.id
-WHERE wi.status IN ('running', 'pending', 'paused')
+WHERE wi.status IN ('running', 'pending', 'dlq')
 ORDER BY wi.created_at DESC`
 
 	rows, err := executor.Query(ctx, query)
@@ -984,6 +984,181 @@ func (store *StoreImpl) CleanupOldWorkflows(ctx context.Context, daysToKeep int)
 	}
 
 	return deletedCount, nil
+}
+
+func (store *StoreImpl) CreateDeadLetterRecord(
+	ctx context.Context,
+	rec *DeadLetterRecord,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+INSERT INTO workflows.dead_letter_queue (
+	instance_id, workflow_id, step_id, step_name, step_type, input, error, reason
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+
+	_, err := executor.Exec(ctx, query,
+		rec.InstanceID,
+		rec.WorkflowID,
+		rec.StepID,
+		rec.StepName,
+		rec.StepType,
+		rec.Input,
+		rec.Error,
+		rec.Reason,
+	)
+	return err
+}
+
+func (store *StoreImpl) RequeueDeadLetter(
+	ctx context.Context,
+	dlqID int64,
+	newInput *json.RawMessage,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+WITH dlq AS (
+    SELECT id, instance_id, step_id, input
+    FROM workflows.dead_letter_queue
+    WHERE id = $1
+    FOR UPDATE
+), upd_step AS (
+    UPDATE workflows.workflow_steps ws
+    SET status = 'pending',
+        input = COALESCE($2, (SELECT input FROM dlq), ws.input),
+        error = NULL,
+        retry_count = 0,
+        compensation_retry_count = 0,
+        started_at = NULL,
+        completed_at = NULL
+    FROM dlq
+    WHERE ws.id = dlq.step_id
+    RETURNING ws.id AS step_id, ws.instance_id AS instance_id
+), enq AS (
+    INSERT INTO workflows.workflow_queue (instance_id, step_id)
+    SELECT instance_id, step_id FROM upd_step
+    RETURNING 1
+), upd_inst AS (
+    UPDATE workflows.workflow_instances wi
+    SET status = 'running', error = NULL
+    FROM upd_step
+    WHERE wi.id = upd_step.instance_id AND wi.status IN ('failed','dlq')
+    RETURNING wi.id
+), upd_join AS (
+    UPDATE workflows.workflow_steps ws
+    SET status = 'pending'
+    FROM upd_step
+    WHERE ws.instance_id = upd_step.instance_id AND ws.step_type = 'join' AND ws.status = 'paused'
+    RETURNING ws.id
+)
+DELETE FROM workflows.dead_letter_queue d USING dlq WHERE d.id = dlq.id;`
+
+	var input any
+	if newInput != nil {
+		input = *newInput
+	} else {
+		input = nil
+	}
+
+	_, err := executor.Exec(ctx, query, dlqID, input)
+
+	return err
+}
+
+func (store *StoreImpl) ListDeadLetters(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error) {
+	executor := store.getExecutor(ctx)
+
+	const countQuery = `SELECT COUNT(*) FROM workflows.dead_letter_queue`
+	var total int64
+	if err := executor.QueryRow(ctx, countQuery).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const selectQuery = `
+SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at
+FROM workflows.dead_letter_queue
+ORDER BY created_at DESC
+OFFSET $1 LIMIT $2`
+
+	rows, err := executor.Query(ctx, selectQuery, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	records := make([]DeadLetterRecord, 0)
+	for rows.Next() {
+		rec := DeadLetterRecord{}
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.InstanceID,
+			&rec.WorkflowID,
+			&rec.StepID,
+			&rec.StepName,
+			&rec.StepType,
+			&rec.Input,
+			&rec.Error,
+			&rec.Reason,
+			&rec.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return records, total, nil
+}
+
+func (store *StoreImpl) GetDeadLetterByID(ctx context.Context, id int64) (*DeadLetterRecord, error) {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at
+FROM workflows.dead_letter_queue
+WHERE id = $1`
+
+	rec := DeadLetterRecord{}
+	if err := executor.QueryRow(ctx, query, id).Scan(
+		&rec.ID,
+		&rec.InstanceID,
+		&rec.WorkflowID,
+		&rec.StepID,
+		&rec.StepName,
+		&rec.StepType,
+		&rec.Input,
+		&rec.Error,
+		&rec.Reason,
+		&rec.CreatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEntityNotFound
+		}
+		return nil, err
+	}
+
+	return &rec, nil
+}
+
+func (store *StoreImpl) PauseActiveStepsAndClearQueue(ctx context.Context, instanceID int64) error {
+	executor := store.getExecutor(ctx)
+
+	// Pause all running steps for this instance
+	const pauseRunning = `UPDATE workflows.workflow_steps SET status = 'paused' WHERE instance_id = $1 AND status = 'running'`
+	if _, err := executor.Exec(ctx, pauseRunning, instanceID); err != nil {
+		return err
+	}
+
+	// Remove all queued items for the instance to prevent further automatic progress
+	const clearQueue = `DELETE FROM workflows.workflow_queue WHERE instance_id = $1`
+	if _, err := executor.Exec(ctx, clearQueue, instanceID); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (store *StoreImpl) getExecutor(ctx context.Context) Tx {

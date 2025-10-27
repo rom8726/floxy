@@ -16,6 +16,7 @@ const (
 	StatusCancelling  WorkflowStatus = "cancelling"
 	StatusCancelled   WorkflowStatus = "cancelled"
 	StatusAborted     WorkflowStatus = "aborted"
+	StatusDLQ         WorkflowStatus = "dlq"
 )
 
 type StepStatus string
@@ -31,6 +32,7 @@ const (
 	StepStatusWaitingDecision StepStatus = "waiting_decision"
 	StepStatusConfirmed       StepStatus = "confirmed"
 	StepStatusRejected        StepStatus = "rejected"
+	StepStatusPaused          StepStatus = "paused"
 )
 
 type StepType string
@@ -83,8 +85,9 @@ type WorkflowDefinition struct {
 }
 
 type GraphDefinition struct {
-	Steps map[string]*StepDefinition `json:"steps"`
-	Start string                     `json:"start"`
+	Steps      map[string]*StepDefinition `json:"steps"`
+	Start      string                     `json:"start"`
+	DLQEnabled bool                       `json:"dlq_enabled"`
 }
 
 type StepDefinition struct {
@@ -215,4 +218,19 @@ type HumanDecisionRecord struct {
 type HumanDecisionWaitingEvent struct {
 	InstanceID int64           `json:"instance_id"`
 	OutputData json.RawMessage `json:"output_data"`
+}
+
+// DeadLetterRecord represents a record stored in the Dead Letter Queue
+// used to resume failed steps later.
+type DeadLetterRecord struct {
+	ID         int64           `json:"id"`
+	InstanceID int64           `json:"instance_id"`
+	WorkflowID string          `json:"workflow_id"`
+	StepID     int64           `json:"step_id"`
+	StepName   string          `json:"step_name"`
+	StepType   string          `json:"step_type"`
+	Input      json.RawMessage `json:"input"`
+	Error      *string         `json:"error"`
+	Reason     string          `json:"reason"`
+	CreatedAt  time.Time       `json:"created_at"`
 }

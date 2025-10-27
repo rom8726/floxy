@@ -87,6 +87,17 @@ type Store interface {
 	GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error)
 	GetHumanDecisionStepByInstanceID(ctx context.Context, instanceID int64) (*WorkflowStep, error)
 
+	// DLQ methods
+	CreateDeadLetterRecord(ctx context.Context, rec *DeadLetterRecord) error
+	RequeueDeadLetter(
+		ctx context.Context,
+		dlqID int64,
+		newInput *json.RawMessage,
+	) error
+	ListDeadLetters(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error)
+	GetDeadLetterByID(ctx context.Context, id int64) (*DeadLetterRecord, error)
+	PauseActiveStepsAndClearQueue(ctx context.Context, instanceID int64) error
+
 	// Cleanup methods
 	CleanupOldWorkflows(ctx context.Context, daysToKeep int) (int64, error)
 }

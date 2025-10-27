@@ -63,3 +63,11 @@ func WithBuilderMaxRetries(maxRetries int) BuilderOption {
 		builder.defaultMaxRetries = maxRetries
 	}
 }
+
+// WithDLQEnabled enables or disables Dead Letter Queue mode for the workflow.
+// When enabled, failed steps will be sent to DLQ and the engine will skip rollback/compensation.
+func WithDLQEnabled(enabled bool) BuilderOption {
+	return func(builder *Builder) {
+		builder.dlqEnabled = enabled
+	}
+}

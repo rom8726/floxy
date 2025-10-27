@@ -46,7 +46,15 @@
   - [10.4 Execution Flow](#104-execution-flow)
   - [10.5 Data Access](#105-data-access)
   - [10.6 Type Safety](#106-type-safety)
-- [11. State Determinism](#11-state-determinism)
+- [11. Dead Letter Queue (DLQ)](#11-dead-letter-queue-dlq)
+  - [11.1 Overview](#111-overview)
+  - [11.2 DLQ Configuration](#112-dlq-configuration)
+  - [11.3 DLQ Behavior](#113-dlq-behavior)
+  - [11.4 Compensation Failure Handling](#114-compensation-failure-handling)
+  - [11.5 Requeueing from DLQ](#115-requeueing-from-dlq)
+  - [11.6 Use Cases](#116-use-cases)
+  - [11.7 Example Usage](#117-example-usage)
+- [12. State Determinism](#12-state-determinism)
 - [12. Failure Semantics](#12-failure-semantics)
 - [13. Example Saga Flow](#13-example-saga-flow)
   - [13.1 Basic Saga](#131-basic-saga)
@@ -82,7 +90,10 @@ A running workflow instance contains:
 
 * Workflow definition (graph of steps).
 * Execution context.
-* Current instance status (`running`, `failed`, `completed`).
+* Current instance status:
+  - **Terminal**: `completed`, `failed`, `cancelled`, `aborted`
+  - **Active**: `pending`, `running`
+  - **Suspended**: `dlq` (paused for manual recovery)
 * Execution state of each step (see below).
 
 ### 2.2 Step Definition
@@ -105,28 +116,55 @@ Each step is represented by a `StepDefinition`:
 | `JoinStrategy` | Join strategy (`all` or `any`).                                     |
 | `Metadata`     | Arbitrary user metadata.                                             |
 
+### 2.3 Step Status
+
+Each step has one of the following statuses:
+
+| Status             | Description                                           | Transition                               |
+|-------------------|-------------------------------------------------------|------------------------------------------|
+| `pending`         | Step is waiting to be executed                        | Start of execution                       |
+| `running`         | Step is currently executing                           | After execution starts                    |
+| `completed`       | Step executed successfully                             | After successful handler execution       |
+| `failed`          | Step failed after retries (Classic Saga mode)         | After retries exhausted in Classic mode   |
+| `paused`          | Step paused (DLQ mode or frozen)                      | When DLQ mode enabled or instance frozen  |
+| `compensation`    | Compensation handler is being executed                | During rollback in Classic Saga mode      |
+| `rolled_back`    | Compensation completed successfully                   | After successful compensation             |
+| `skipped`         | Step was skipped (cancel/abort)                       | After cancel/abort operation             |
+| `waiting_decision`| Human step waiting for decision                       | After human step execution start          |
+| `confirmed`       | Human step approved                                   | After human confirms                     |
+| `rejected`        | Human step rejected                                   | After human rejects                       |
+
 ---
 
 ## 3. Step Lifecycle
 
 Each step transitions through deterministic states:
 
+**Classic Saga Mode:**
 ```
 pending → running → completed
              ↓
             failed → compensation → rolled_back
 ```
 
+**DLQ Mode:**
+```
+pending → running → paused (workflow in dlq state)
+                   → completed (after requeue and retry)
+```
+
 ### Transition Rules
 
-| From           | To             | Trigger                            |
-| -------------- | -------------- | ---------------------------------- |
-| `pending`      | `running`      | Engine starts execution            |
-| `running`      | `completed`    | Handler succeeds                   |
-| `running`      | `failed`       | Handler returns error              |
-| `failed`       | `compensation` | Engine begins rollback             |
-| `compensation` | `rolled_back`  | Compensation succeeds              |
-| `compensation` | `failed`       | Compensation exhausted all retries |
+| From           | To             | Trigger                            | Mode        |
+| -------------- | -------------- | ---------------------------------- | ----------- |
+| `pending`      | `running`      | Engine starts execution            | Both        |
+| `running`      | `completed`    | Handler succeeds                   | Both        |
+| `running`      | `failed`       | Handler returns error              | Classic     |
+| `running`      | `paused`       | DLQ mode enabled, retries exhausted| DLQ         |
+| `failed`       | `compensation` | Engine begins rollback             | Classic     |
+| `compensation` | `rolled_back`  | Compensation succeeds              | Classic     |
+| `compensation` | `failed`       | Compensation exhausted all retries | Classic     |
+| `paused`       | `pending`      | Requeue from DLQ                   | DLQ         |
 
 ---
 
@@ -714,7 +752,222 @@ The engine automatically handles type conversions for numeric comparisons:
 
 ---
 
-## 11. State Determinism
+## 11. Dead Letter Queue (DLQ)
+
+### 11.1 Overview
+
+Floxy Engine supports two different error handling modes for failed steps:
+
+1. **Classic Saga Mode** (default): Automatic rollback with compensation handlers
+2. **DLQ Mode**: Manual recovery with paused workflows
+
+When DLQ is enabled for a workflow, failed steps do **not** trigger rollback/compensation. Instead, the workflow is paused in `dlq` status for manual investigation and recovery.
+
+### 11.2 DLQ Configuration
+
+Enable DLQ for a workflow during definition using the `WithDLQEnabled` builder option:
+
+```go
+workflow, err := floxy.NewBuilder("my-workflow", 1, floxy.WithDLQEnabled(true)).
+    Step("step1", "handler", floxy.WithStepMaxRetries(3)).
+    Then("step2", "handler").
+    Build()
+```
+
+When `WithDLQEnabled(true)` is set:
+- Workflow definition includes `DLQEnabled: true` flag
+- All failed steps are sent to DLQ instead of rollback
+- Compensation handlers are **not** executed on failure
+- Workflow status is set to `dlq` (non-terminal, can be resumed)
+- All active `running` steps are set to `paused` status
+- Instance queue is cleared to prevent further execution
+
+### 11.3 DLQ Behavior
+
+**When a step fails with DLQ enabled:**
+
+1. **Retry Exhausted**: After all retry attempts are exhausted
+2. **Step Paused**: Failed step status → `paused` (not `failed`)
+3. **DLQ Record Created**: Step information is stored in `workflows.dead_letter_queue` table:
+   - Instance ID and Workflow ID
+   - Step ID, name, and type
+   - Original input data
+   - Error message
+   - Failure reason: "dlq enabled: rollback/compensation skipped"
+4. **Workflow Paused**: Instance status → `dlq` (non-terminal, resumable)
+5. **Active Steps Frozen**: All `running` steps are set to `paused` status
+6. **Queue Cleared**: Instance queue is cleared to prevent further execution
+7. **No Rollback**: Compensation and rollback are **completely skipped**
+
+**DLQ Record Structure:**
+
+| Field | Description |
+|-------|-------------|
+| `instance_id` | Workflow instance ID |
+| `workflow_id` | Workflow definition ID |
+| `step_id` | Failed step ID |
+| `step_name` | Failed step name |
+| `step_type` | Type of the failed step |
+| `input` | Step input data at time of failure |
+| `error` | Error message from step failure |
+| `reason` | Why step was sent to DLQ |
+| `created_at` | Timestamp when record was created |
+
+### 11.4 Compensation Failure Handling
+
+When DLQ is **not enabled** and compensation fails after exhausting all retries, the failed step is automatically sent to DLQ:
+
+```go
+// Workflow without DLQ enabled
+workflow, err := floxy.NewBuilder("order", 1).
+    Step("charge-payment", "payment").
+        OnFailure("refund-payment", "refund", floxy.WithStepMaxRetries(0)).
+    Then("ship-order", "shipping").
+    Build()
+```
+
+**Behavior:**
+1. `charge-payment` step fails
+2. `refund-payment` compensation runs and fails (MaxRetries = 0)
+3. `charge-payment` step is sent to DLQ with reason: "compensation max retries exceeded"
+4. Workflow status → `failed`
+
+This ensures that even without explicit DLQ enablement, severe failures are captured for manual resolution.
+
+### 11.5 Requeueing from DLQ
+
+Use the `RequeueFromDLQ` method to restore a failed step from DLQ:
+
+```go
+// Requeue with original input
+err := engine.RequeueFromDLQ(ctx, dlqID, nil)
+
+// Requeue with modified input
+newInput := json.RawMessage(`{"status": "fixed", "data": "corrected"}`)
+err := engine.RequeueFromDLQ(ctx, dlqID, &newInput)
+```
+
+**Requeue Process:**
+
+1. **Step Reset**: Step status → `pending`
+   - Error cleared
+   - Retry count reset to 0
+   - Compensation retry count reset to 0
+   - Timestamps reset (`started_at`, `completed_at` set to NULL)
+2. **Input Update**: If `newInput` is provided, step input is updated
+3. **Queue Enqueue**: Step is added to workflow queue for execution
+4. **Instance Recovery**: Instance status `dlq` → `running`
+5. **Join Step Activation**: Any `paused` join steps are set to `pending` for automatic continuation
+6. **DLQ Deletion**: DLQ record is removed
+
+**Fork/Join Behavior During Requeue:**
+- If join step exists in `paused` status (because instance was in `dlq` when dependencies completed)
+- Join transitions to `pending` after requeue
+- Workflow can automatically progress past join after requeued step completes
+
+**Implementation:**
+
+The `RequeueFromDLQ` operation is atomic and uses a CTE to ensure:
+- DLQ record is locked during the operation
+- Step and instance updates happen in a single transaction
+- Queue insertion is done after step update
+- DLQ record is deleted only after successful requeue
+
+### 11.6 Use Cases
+
+| Use Case | Description |
+|----------|-------------|
+| **Transient Failures** | External services temporarily unavailable (e.g., payment gateway timeouts) |
+| **Data Issues** | Malformed input requiring manual correction (e.g., invalid customer ID) |
+| **Infrastructure Failures** | Temporary infrastructure issues (e.g., database connection limits) |
+| **Rate Limiting** | External API rate limits requiring human intervention |
+| **Business Logic Errors** | Issues requiring code fixes or data corrections |
+| **Compensation Failures** | When compensation steps themselves fail after retry exhaustion |
+
+### 11.7 Example Usage
+
+**Basic DLQ Workflow:**
+
+```go
+// Define workflow with DLQ
+workflow, err := floxy.NewBuilder("payment-processing", 1, floxy.WithDLQEnabled(true)).
+    Step("validate-payment", "payment-validator", floxy.WithStepMaxRetries(2)).
+    Then("process-payment", "payment-processor", floxy.WithStepMaxRetries(3)).
+    Then("notify-user", "notification-service", floxy.WithStepMaxRetries(1)).
+    Build()
+
+// Register and start
+err = engine.RegisterWorkflow(ctx, workflow)
+instanceID, err := engine.Start(ctx, "payment-processing-v1", input)
+
+// Process workflow steps
+for {
+    empty, err := engine.ExecuteNext(ctx, "worker1")
+    if err != nil {
+        log.Printf("Error: %v", err)
+    }
+    if empty {
+        break
+    }
+    time.Sleep(10 * time.Millisecond)
+}
+
+// Check for DLQ records (manual query or UI)
+// When ready to retry:
+err = engine.RequeueFromDLQ(ctx, dlqID, nil)
+```
+
+**Requeue with Modified Input:**
+
+```go
+// Investigate failure and prepare corrected input
+investigationResult := struct {
+    PaymentID  string `json:"payment_id"`
+    Amount     float64 `json:"amount"`
+    Currency   string `json:"currency"`
+    Status     string `json:"status"` // corrected from invalid to valid
+}{
+    PaymentID: "fixed-payment-123",
+    Amount:    100.0,
+    Currency:  "USD",
+    Status:    "valid",
+}
+
+newInput, _ := json.Marshal(investigationResult)
+err := engine.RequeueFromDLQ(ctx, dlqID, &newInput)
+```
+
+**Monitoring DLQ:**
+
+```go
+// Query DLQ records for a workflow instance (implement custom function)
+type DLQRecord struct {
+    ID         int64
+    InstanceID int64
+    StepName   string
+    Error      string
+    Reason     string
+    CreatedAt  time.Time
+}
+
+// Custom query to retrieve DLQ records
+func GetDLQRecords(ctx context.Context, instanceID int64) ([]DLQRecord, error) {
+    // Implementation depends on your database access method
+    // Query: SELECT * FROM workflows.dead_letter_queue WHERE instance_id = $1
+}
+```
+
+**Integration Testing:**
+
+See `dlq_integration_test.go` for comprehensive DLQ testing:
+- `TestDLQ_BasicWorkflowFailure`: Tests DLQ record creation on failure
+- `TestDLQ_RequeueFromDLQ`: Tests requeuing from DLQ
+- `TestDLQ_RequeueWithNewInput`: Tests requeuing with modified input
+- `TestDLQ_CompensationMaxRetriesExceeded`: Tests DLQ on compensation failures
+
+---
+
+## 12. State Determinism
 
 Floxy ensures deterministic workflow execution:
 
@@ -725,23 +978,25 @@ Floxy ensures deterministic workflow execution:
 
 ---
 
-## 12. Failure Semantics
+## 13. Failure Semantics
 
-| Scenario               | Behavior                                                |
-|------------------------| ------------------------------------------------------- |
-| Handler error          | Step → `failed`, compensation starts.                   |
-| Compensation error     | Step remains `compensation`, retry counter incremented. |
-| Retries exhausted      | Step → `failed`.                                        |
-| No `OnFailure` defined | Step → `rolled_back`.                                   |
-| SavePoint found        | Rollback stops at save point.                           |
-| Cancel operation       | Step → `skipped`, compensation executed.                |
-| Abort operation        | Step → `skipped`, no compensation.                      |
+| Scenario                    | Classic Saga Behavior                                    | DLQ Mode Behavior                                         |
+|----------------------------|----------------------------------------------------------|----------------------------------------------------------|
+| Handler error              | Step → `failed`, compensation starts                     | Step → `paused`, instance → `dlq`, DLQ record created    |
+| Compensation error         | Step remains `compensation`, retry counter incremented   | Not applicable (no compensation in DLQ mode)              |
+| Retries exhausted          | Step → `failed`, rollback to SavePoint                    | Step → `paused`, instance → `dlq`, queue cleared           |
+| No `OnFailure` defined     | Step → `rolled_back`                                     | Step → `paused`, instance → `dlq`, queue cleared          |
+| SavePoint found            | Rollback stops at save point                             | Not applicable (no rollback in DLQ mode)                  |
+| Cancel operation           | Step → `skipped`, compensation executed                   | Step → `skipped`, compensation executed (respects mode)   |
+| Abort operation            | Step → `skipped`, no compensation                        | Step → `skipped`, no compensation                         |
+| DLQ enabled + fork/join    | Standard fork/join behavior                              | Parallel branches complete, join → `paused` if instance in `dlq` |
+| Requeue from DLQ           | Not applicable                                           | Instance `dlq` → `running`, join `paused` → `pending`       |
 
 ---
 
-## 13. Example Saga Flow
+## 14. Example Saga Flow
 
-### 13.1 Basic Saga
+### 14.1 Basic Saga
 
 ```go
 wf := NewBuilder("order_saga", 1).
@@ -764,7 +1019,7 @@ Execution sequence:
     * Mark both as `rolled_back`
     * Instance → `failed`
 
-### 13.2 Saga with Condition Steps
+### 14.2 Saga with Condition Steps
 
 ```go
 wf := NewBuilder("smart_order_saga", 1).
@@ -795,7 +1050,7 @@ This example demonstrates:
 
 ---
 
-## 14. Design Principles
+## 15. Design Principles
 
 * **Deterministic State Machine** — no flags or side effects outside state transitions.
 * **Declarative Compensation** — rollback is described, not coded imperatively.
@@ -809,10 +1064,11 @@ This example demonstrates:
 * **Template-Based Logic** — conditions use familiar Go template syntax.
 * **Workflow Control** — external cancellation and abortion capabilities.
 * **Human Integration** — interactive workflow steps with decision tracking.
+* **Dead Letter Queue** — store failed steps for manual investigation and re-execution.
 
 ---
 
-## 15. Summary
+## 16. Summary
 
 Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 
@@ -823,4 +1079,5 @@ Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 * **parallel-safe** — proper handling of condition steps in concurrent flows,
 * **human-integrated** — interactive workflow steps with decision tracking,
 * **controllable** — external cancellation and abortion capabilities,
+* **resilient** — dead letter queue for handling transient failures,
 * and **easy to extend** with custom step types or policies.
