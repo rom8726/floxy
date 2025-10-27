@@ -49,6 +49,46 @@ func (h *JSONHandler) Execute(
 	return json.Marshal(result)
 }
 
+// === TypedHandler ===
+type TypedHandler[I, O any] struct {
+	name string
+	fn   func(ctx context.Context, stepCtx StepContext, input I) (O, error)
+}
+
+func NewTypedHandler[I, O any](
+	name string,
+	fn func(ctx context.Context, stepCtx StepContext, input I) (O, error),
+) *TypedHandler[I, O] {
+	return &TypedHandler[I, O]{
+		name: name,
+		fn:   fn,
+	}
+}
+
+func (h *TypedHandler[I, O]) Name() string {
+	return h.name
+}
+
+func (h *TypedHandler[I, O]) Execute(
+	ctx context.Context,
+	stepCtx StepContext,
+	input json.RawMessage,
+) (json.RawMessage, error) {
+	var data I
+	if err := json.Unmarshal(input, &data); err != nil {
+		return nil, fmt.Errorf("unmarshal input: %w", err)
+	}
+
+	result, err := h.fn(ctx, stepCtx, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+// === CalculateRetryDelay ===
+
 func CalculateRetryDelay(strategy RetryStrategy, baseDelay time.Duration, retryAttempt int) time.Duration {
 	switch strategy {
 	case RetryStrategyExponential:
