@@ -8,13 +8,21 @@ import (
 	"sync"
 )
 
+type PluginPriority int
+
+const (
+	PriorityLow    PluginPriority = 0
+	PriorityNormal PluginPriority = 50
+	PriorityHigh   PluginPriority = 100
+)
+
 // Plugin represents a lifecycle hook system for workflows
 type Plugin interface {
 	// Name returns unique plugin identifier
 	Name() string
 
 	// Priority determines execution order (higher = earlier)
-	Priority() int
+	Priority() PluginPriority
 
 	// Lifecycle hooks
 	OnWorkflowStart(ctx context.Context, instance *WorkflowInstance) error
@@ -23,6 +31,35 @@ type Plugin interface {
 	OnStepStart(ctx context.Context, step *WorkflowStep) error
 	OnStepComplete(ctx context.Context, step *WorkflowStep) error
 	OnStepFailed(ctx context.Context, step *WorkflowStep, err error) error
+}
+
+// BasePlugin provides default no-op implementations
+type BasePlugin struct {
+	name     string
+	priority PluginPriority
+}
+
+func NewBasePlugin(name string, priority PluginPriority) BasePlugin {
+	return BasePlugin{name: name, priority: priority}
+}
+
+func (p BasePlugin) Name() string             { return p.name }
+func (p BasePlugin) Priority() PluginPriority { return p.priority }
+func (p BasePlugin) OnWorkflowStart(context.Context, *WorkflowInstance) error {
+	return nil
+}
+func (p BasePlugin) OnWorkflowComplete(context.Context, *WorkflowInstance) error {
+	return nil
+}
+func (p BasePlugin) OnWorkflowFailed(context.Context, *WorkflowInstance) error {
+	return nil
+}
+func (p BasePlugin) OnStepStart(context.Context, *WorkflowStep) error { return nil }
+func (p BasePlugin) OnStepComplete(context.Context, *WorkflowStep) error {
+	return nil
+}
+func (p BasePlugin) OnStepFailed(context.Context, *WorkflowStep, error) error {
+	return nil
 }
 
 // PluginManager manages plugin lifecycle
