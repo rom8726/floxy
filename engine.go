@@ -17,15 +17,17 @@ const (
 )
 
 type Engine struct {
-	txManager                  TxManager
-	store                      Store
-	handlers                   map[string]StepHandler
-	mu                         sync.RWMutex
-	cancelContexts             map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
-	cancelMu                   sync.RWMutex
-	cancelWorkerInterval       time.Duration
-	shutdownCh                 chan struct{}
-	shutdownOnce               sync.Once
+	txManager            TxManager
+	store                Store
+	handlers             map[string]StepHandler
+	mu                   sync.RWMutex
+	cancelContexts       map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
+	cancelMu             sync.RWMutex
+	cancelWorkerInterval time.Duration
+	shutdownCh           chan struct{}
+	shutdownOnce         sync.Once
+
+	humanDecisionWaitingOnce   sync.Once
 	humanDecisionWaitingEvents chan HumanDecisionWaitingEvent
 
 	pluginManager *PluginManager
@@ -33,13 +35,12 @@ type Engine struct {
 
 func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 	engine := &Engine{
-		txManager:                  NewTxManager(pool),
-		store:                      NewStore(pool),
-		handlers:                   make(map[string]StepHandler),
-		cancelContexts:             make(map[int64]map[int64]context.CancelFunc),
-		shutdownCh:                 make(chan struct{}),
-		cancelWorkerInterval:       defaultCancelWorkerInterval,
-		humanDecisionWaitingEvents: make(chan HumanDecisionWaitingEvent, 100),
+		txManager:            NewTxManager(pool),
+		store:                NewStore(pool),
+		handlers:             make(map[string]StepHandler),
+		cancelContexts:       make(map[int64]map[int64]context.CancelFunc),
+		shutdownCh:           make(chan struct{}),
+		cancelWorkerInterval: defaultCancelWorkerInterval,
 	}
 
 	for _, opt := range opts {
@@ -965,9 +966,8 @@ func (engine *Engine) executeHuman(
 		OutputData: output,
 	}
 
-	select {
-	case engine.humanDecisionWaitingEvents <- event:
-	default:
+	if engine.humanDecisionWaitingEvents != nil {
+		engine.humanDecisionWaitingEvents <- event
 	}
 
 	return output, false, nil
@@ -1417,6 +1417,10 @@ func (engine *Engine) GetSteps(ctx context.Context, instanceID int64) ([]Workflo
 }
 
 func (engine *Engine) HumanDecisionWaitingEvents() <-chan HumanDecisionWaitingEvent {
+	engine.humanDecisionWaitingOnce.Do(func() {
+		engine.humanDecisionWaitingEvents = make(chan HumanDecisionWaitingEvent)
+	})
+
 	return engine.humanDecisionWaitingEvents
 }
 
