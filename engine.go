@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -26,6 +27,8 @@ type Engine struct {
 	shutdownCh                 chan struct{}
 	shutdownOnce               sync.Once
 	humanDecisionWaitingEvents chan HumanDecisionWaitingEvent
+
+	pluginManager *PluginManager
 }
 
 func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
@@ -54,6 +57,17 @@ func (engine *Engine) RegisterHandler(handler StepHandler) {
 	engine.handlers[handler.Name()] = handler
 }
 
+func (engine *Engine) RegisterPlugin(plugin Plugin) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+
+	if engine.pluginManager == nil {
+		engine.pluginManager = NewPluginManager()
+	}
+
+	engine.pluginManager.Register(plugin)
+}
+
 func (engine *Engine) RegisterWorkflow(ctx context.Context, def *WorkflowDefinition) error {
 	if err := engine.validateDefinition(def); err != nil {
 		return fmt.Errorf("invalid workflow definition: %w", err)
@@ -74,6 +88,13 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 		instance, err := engine.store.CreateInstance(ctx, workflowID, input)
 		if err != nil {
 			return fmt.Errorf("create instance: %w", err)
+		}
+
+		// PLUGIN HOOK: OnWorkflowStart
+		if engine.pluginManager != nil {
+			if err := engine.pluginManager.ExecuteWorkflowStart(ctx, instance); err != nil {
+				return fmt.Errorf("plugin hook failed: %w", err)
+			}
 		}
 
 		_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowStarted, map[string]any{
@@ -344,7 +365,8 @@ func (engine *Engine) processCancelRequests() {
 		_, err := engine.store.GetCancelRequest(ctx, instanceID)
 		if err != nil {
 			if !errors.Is(err, ErrEntityNotFound) {
-				// TODO: log error
+				slog.Error("[floxy] get cancel request for instance failed",
+					"instance_id", instanceID, "error", err)
 			}
 
 			continue
@@ -417,6 +439,13 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 		return fmt.Errorf("step definition not found: %s", step.StepName)
 	}
 
+	// PLUGIN HOOK: OnStepStart
+	if engine.pluginManager != nil {
+		if err := engine.pluginManager.ExecuteStepStart(ctx, step); err != nil {
+			return fmt.Errorf("plugin hook OnStepStart failed: %w", err)
+		}
+	}
+
 	handlerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -478,7 +507,21 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	}
 
 	if stepErr != nil {
+		// PLUGIN HOOK: OnStepFailed
+		if engine.pluginManager != nil {
+			if errPlugin := engine.pluginManager.ExecuteStepFailed(ctx, step, stepErr); errPlugin != nil {
+				slog.Warn("[floxy] plugin hook OnStepFailed failed", "error", err)
+			}
+		}
+
 		return engine.handleStepFailure(ctx, instance, step, stepDef, stepErr)
+	}
+
+	// PLUGIN HOOK: OnStepComplete
+	if engine.pluginManager != nil {
+		if err := engine.pluginManager.ExecuteStepComplete(ctx, step); err != nil {
+			slog.Warn("[floxy] plugin hook OnStepComplete failed", "error", err)
+		}
 	}
 
 	return engine.handleStepSuccess(ctx, instance, step, stepDef, output, next)
@@ -1127,7 +1170,21 @@ func (engine *Engine) handleStepFailure(
 		}
 	}
 
-	return engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg)
+	if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg); err != nil {
+		return fmt.Errorf("update instance status: %w", err)
+	}
+
+	// PLUGIN HOOK: OnWorkflowFailed
+	if engine.pluginManager != nil {
+		finalInstance, _ := engine.store.GetInstance(ctx, instance.ID)
+		if finalInstance != nil {
+			if errPlugin := engine.pluginManager.ExecuteWorkflowFailed(ctx, finalInstance); errPlugin != nil {
+				slog.Warn("[floxy] plugin hook OnWorkflowFailed failed", "error", errPlugin)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (engine *Engine) notifyJoinSteps(
@@ -1331,6 +1388,17 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 	_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowCompleted, map[string]any{
 		KeyWorkflowID: instance.WorkflowID,
 	})
+
+	// PLUGIN HOOK: OnWorkflowComplete
+	if engine.pluginManager != nil {
+		// Reload instance to get the final state
+		finalInstance, _ := engine.store.GetInstance(ctx, instance.ID)
+		if finalInstance != nil {
+			if errPlugin := engine.pluginManager.ExecuteWorkflowComplete(ctx, finalInstance); errPlugin != nil {
+				slog.Warn("[floxy] plugin hook OnWorkflowComplete failed", "error", errPlugin)
+			}
+		}
+	}
 
 	return nil
 }

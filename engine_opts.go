@@ -23,3 +23,9 @@ func WithEngineStore(store Store) EngineOption {
 		engine.store = store
 	}
 }
+
+func WithEnginePluginManager(pluginManager *PluginManager) EngineOption {
+	return func(e *Engine) {
+		e.pluginManager = pluginManager
+	}
+}
