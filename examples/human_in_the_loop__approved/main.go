@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -186,6 +187,13 @@ func main() {
 	defer cancel()
 
 	workerPool.Start(ctx)
+
+	go func() {
+		decisionWaitCh := engine.HumanDecisionWaitingEvents()
+		for event := range decisionWaitCh {
+			fmt.Printf("Wait decision event: %s\n", string(event.OutputData))
+		}
+	}()
 
 	// Create document for processing
 	document := map[string]any{
