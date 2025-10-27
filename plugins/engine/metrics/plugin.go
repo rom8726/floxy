@@ -19,7 +19,7 @@ type MetricsPlugin struct {
 	mu                 sync.RWMutex
 }
 
-func NewMetricsPlugin(collector MetricsCollector) *MetricsPlugin {
+func New(collector MetricsCollector) *MetricsPlugin {
 	return &MetricsPlugin{
 		BasePlugin:         floxy.NewBasePlugin("metrics", floxy.PriorityHigh),
 		collector:          collector,
