@@ -1649,7 +1649,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	}
 
 	// Enqueue compensation step for execution
-	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
+	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.RetryDelay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
 

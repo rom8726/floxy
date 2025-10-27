@@ -38,6 +38,12 @@ func WithStepDelay(delay time.Duration) StepOption {
 	}
 }
 
+func WithStepRetryDelay(retryDelay time.Duration) StepOption {
+	return func(step *StepDefinition) {
+		step.RetryDelay = retryDelay
+	}
+}
+
 func WithStepTimeout(timeout time.Duration) StepOption {
 	return func(step *StepDefinition) {
 		step.Timeout = timeout

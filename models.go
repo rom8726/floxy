@@ -95,6 +95,7 @@ type StepDefinition struct {
 	Metadata     map[string]any `json:"metadata"`
 	NoIdempotent bool           `json:"no_idempotent"`
 	Delay        time.Duration  `json:"delay"`
+	RetryDelay   time.Duration  `json:"retry_delay"`
 	Timeout      time.Duration  `json:"timeout"`
 }
 
