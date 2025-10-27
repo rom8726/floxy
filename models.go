@@ -66,6 +66,14 @@ const (
 	CancelTypeAbort  CancelType = "abort"
 )
 
+type RetryStrategy uint8
+
+const (
+	RetryStrategyFixed       RetryStrategy = iota // Fixed delay between retries
+	RetryStrategyExponential                      // Exponential backoff: delay = base * 2^attempt
+	RetryStrategyLinear                           // Linear backoff: delay = base * attempt
+)
+
 type WorkflowDefinition struct {
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
@@ -80,23 +88,24 @@ type GraphDefinition struct {
 }
 
 type StepDefinition struct {
-	Name         string         `json:"name"`
-	Type         StepType       `json:"type"`
-	Handler      string         `json:"handler"`
-	MaxRetries   int            `json:"max_retries"`
-	Next         []string       `json:"next"`
-	Prev         string         `json:"prev"`           // previous step in the chain
-	Else         string         `json:"else,omitempty"` // alternative step for condition steps for false branch
-	OnFailure    string         `json:"on_failure"`     // compensation step
-	Condition    string         `json:"condition"`      // for conditional transitions
-	Parallel     []string       `json:"parallel"`       // for parallel steps (fork)
-	WaitFor      []string       `json:"wait_for"`       // for join, we are waiting for these steps to be completed
-	JoinStrategy JoinStrategy   `json:"join_strategy"`  // "all" (default) or "any"
-	Metadata     map[string]any `json:"metadata"`
-	NoIdempotent bool           `json:"no_idempotent"`
-	Delay        time.Duration  `json:"delay"`
-	RetryDelay   time.Duration  `json:"retry_delay"`
-	Timeout      time.Duration  `json:"timeout"`
+	Name          string         `json:"name"`
+	Type          StepType       `json:"type"`
+	Handler       string         `json:"handler"`
+	MaxRetries    int            `json:"max_retries"`
+	Next          []string       `json:"next"`
+	Prev          string         `json:"prev"`           // previous step in the chain
+	Else          string         `json:"else,omitempty"` // alternative step for condition steps for false branch
+	OnFailure     string         `json:"on_failure"`     // compensation step
+	Condition     string         `json:"condition"`      // for conditional transitions
+	Parallel      []string       `json:"parallel"`       // for parallel steps (fork)
+	WaitFor       []string       `json:"wait_for"`       // for join, we are waiting for these steps to be completed
+	JoinStrategy  JoinStrategy   `json:"join_strategy"`  // "all" (default) or "any"
+	Metadata      map[string]any `json:"metadata"`
+	NoIdempotent  bool           `json:"no_idempotent"`
+	Delay         time.Duration  `json:"delay"`
+	RetryDelay    time.Duration  `json:"retry_delay"`
+	RetryStrategy RetryStrategy  `json:"retry_strategy"` // Strategy for retry delays: fixed, exponential, linear
+	Timeout       time.Duration  `json:"timeout"`
 }
 
 type WorkflowInstance struct {

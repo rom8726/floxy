@@ -50,6 +50,12 @@ func WithStepTimeout(timeout time.Duration) StepOption {
 	}
 }
 
+func WithStepRetryStrategy(strategy RetryStrategy) StepOption {
+	return func(step *StepDefinition) {
+		step.RetryStrategy = strategy
+	}
+}
+
 type BuilderOption func(builder *Builder)
 
 func WithBuilderMaxRetries(maxRetries int) BuilderOption {

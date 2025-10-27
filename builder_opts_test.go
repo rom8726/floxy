@@ -384,3 +384,43 @@ func TestWithStepTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestWithStepRetryStrategy(t *testing.T) {
+	type args struct {
+		strategy RetryStrategy
+	}
+	tests := []struct {
+		name         string
+		args         args
+		wantStrategy RetryStrategy
+	}{
+		{
+			name:         "fixed strategy",
+			args:         args{strategy: RetryStrategyFixed},
+			wantStrategy: RetryStrategyFixed,
+		},
+		{
+			name:         "exponential strategy",
+			args:         args{strategy: RetryStrategyExponential},
+			wantStrategy: RetryStrategyExponential,
+		},
+		{
+			name:         "linear strategy",
+			args:         args{strategy: RetryStrategyLinear},
+			wantStrategy: RetryStrategyLinear,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			step := &StepDefinition{
+				Name: "test_step",
+				Type: StepTypeTask,
+			}
+
+			opt := WithStepRetryStrategy(tt.args.strategy)
+			opt(step)
+
+			assert.Equalf(t, tt.wantStrategy, step.RetryStrategy, "WithStepRetryStrategy(%v)", tt.args.strategy)
+		})
+	}
+}

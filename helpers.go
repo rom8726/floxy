@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"time"
 )
 
 type JSONHandler struct {
@@ -45,4 +47,23 @@ func (h *JSONHandler) Execute(
 	}
 
 	return json.Marshal(result)
+}
+
+func CalculateRetryDelay(strategy RetryStrategy, baseDelay time.Duration, retryAttempt int) time.Duration {
+	switch strategy {
+	case RetryStrategyExponential:
+		// Exponential backoff: baseDelay * 2^retryAttempt
+		multiplier := math.Pow(2, float64(retryAttempt))
+		return time.Duration(float64(baseDelay) * multiplier)
+
+	case RetryStrategyLinear:
+		// Linear backoff: baseDelay * retryAttempt
+		return baseDelay * time.Duration(retryAttempt)
+
+	case RetryStrategyFixed:
+		fallthrough
+	default:
+		// Fixed delay: always use baseDelay
+		return baseDelay
+	}
 }

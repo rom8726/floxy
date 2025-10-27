@@ -53,13 +53,14 @@ func (builder *Builder) Step(name, handler string, opts ...StepOption) *Builder 
 	}
 
 	step := &StepDefinition{
-		Name:       name,
-		Type:       StepTypeTask,
-		Handler:    handler,
-		MaxRetries: builder.defaultMaxRetries,
-		Next:       []string{},
-		Prev:       builder.currentStep,
-		Metadata:   make(map[string]any),
+		Name:          name,
+		Type:          StepTypeTask,
+		Handler:       handler,
+		MaxRetries:    builder.defaultMaxRetries,
+		Next:          []string{},
+		Prev:          builder.currentStep,
+		Metadata:      make(map[string]any),
+		RetryStrategy: RetryStrategyFixed, // Default strategy
 	}
 
 	for _, opt := range opts {
@@ -98,11 +99,12 @@ func (builder *Builder) OnFailure(name, handler string, opts ...StepOption) *Bui
 	}
 
 	compensation := &StepDefinition{
-		Name:       name,
-		Type:       StepTypeTask,
-		Handler:    handler,
-		MaxRetries: builder.defaultMaxRetries,
-		Prev:       "", // Compensation steps don't have prev in the main flow
+		Name:          name,
+		Type:          StepTypeTask,
+		Handler:       handler,
+		MaxRetries:    builder.defaultMaxRetries,
+		Prev:          "",                 // Compensation steps don't have prev in the main flow
+		RetryStrategy: RetryStrategyFixed, // Default strategy
 	}
 	for _, opt := range opts {
 		opt(compensation)
@@ -413,12 +415,13 @@ func (builder *Builder) WaitHumanConfirm(name string, opts ...StepOption) *Build
 	}
 
 	step := &StepDefinition{
-		Name:       name,
-		Type:       StepTypeHuman,
-		MaxRetries: builder.defaultMaxRetries,
-		Prev:       builder.currentStep,
-		Metadata:   make(map[string]any),
-		Delay:      time.Minute,
+		Name:          name,
+		Type:          StepTypeHuman,
+		MaxRetries:    builder.defaultMaxRetries,
+		Prev:          builder.currentStep,
+		Metadata:      make(map[string]any),
+		Delay:         time.Minute,
+		RetryStrategy: RetryStrategyFixed, // Default strategy
 	}
 
 	for _, opt := range opts {
@@ -572,12 +575,13 @@ func (builder *Builder) detectCycles(
 
 func NewTask(name, handler string, opts ...StepOption) *StepDefinition {
 	step := &StepDefinition{
-		Name:       name,
-		Handler:    handler,
-		Type:       StepTypeTask,
-		Prev:       "", // NewTask doesn't have currentStep context
-		Metadata:   make(map[string]any),
-		MaxRetries: defaultMaxRetries,
+		Name:          name,
+		Handler:       handler,
+		Type:          StepTypeTask,
+		Prev:          "", // NewTask doesn't have currentStep context
+		Metadata:      make(map[string]any),
+		MaxRetries:    defaultMaxRetries,
+		RetryStrategy: RetryStrategyFixed, // Default strategy
 	}
 
 	for _, opt := range opts {
