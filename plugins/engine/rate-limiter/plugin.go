@@ -38,12 +38,15 @@ func (p *RateLimiterPlugin) Initialize() error {
 	return nil
 }
 
-func (p *RateLimiterPlugin) OnStepStart(_ context.Context, step *floxy.WorkflowStep) error {
+func (p *RateLimiterPlugin) OnStepStart(
+	_ context.Context,
+	instance *floxy.WorkflowInstance,
+	step *floxy.WorkflowStep,
+) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	workflowID := ""
-	key := fmt.Sprintf("%s:%s", workflowID, step.StepName)
+	key := fmt.Sprintf("%s:%s", instance.WorkflowID, step.StepName)
 
 	if _, exists := p.tokens[key]; !exists {
 		p.tokens[key] = p.maxTokens

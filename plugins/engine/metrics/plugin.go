@@ -84,6 +84,7 @@ func (p *MetricsPlugin) OnWorkflowFailed(ctx context.Context, instance *floxy.Wo
 
 func (p *MetricsPlugin) OnStepStart(
 	ctx context.Context,
+	instance *floxy.WorkflowInstance,
 	step *floxy.WorkflowStep,
 ) error {
 	p.mu.Lock()
@@ -92,8 +93,8 @@ func (p *MetricsPlugin) OnStepStart(
 	p.stepStartTimes[step.ID] = time.Now()
 
 	if p.collector != nil {
-		p.collector.RecordStepStarted(step.InstanceID, step.StepName, step.StepType)
-		p.collector.RecordStepStatus(step.InstanceID, step.StepName, step.Status)
+		p.collector.RecordStepStarted(step.InstanceID, instance.WorkflowID, step.StepName, step.StepType)
+		p.collector.RecordStepStatus(step.InstanceID, instance.WorkflowID, step.StepName, step.Status)
 	}
 
 	return nil
@@ -101,6 +102,7 @@ func (p *MetricsPlugin) OnStepStart(
 
 func (p *MetricsPlugin) OnStepComplete(
 	ctx context.Context,
+	instance *floxy.WorkflowInstance,
 	step *floxy.WorkflowStep,
 ) error {
 	p.mu.Lock()
@@ -115,14 +117,14 @@ func (p *MetricsPlugin) OnStepComplete(
 	delete(p.stepStartTimes, step.ID)
 
 	if p.collector != nil {
-		p.collector.RecordStepCompleted(step.InstanceID, step.StepName, step.StepType, duration)
-		p.collector.RecordStepStatus(step.InstanceID, step.StepName, step.Status)
+		p.collector.RecordStepCompleted(step.InstanceID, instance.WorkflowID, step.StepName, step.StepType, duration)
+		p.collector.RecordStepStatus(step.InstanceID, instance.WorkflowID, step.StepName, step.Status)
 	}
 
 	return nil
 }
 
-func (p *MetricsPlugin) OnStepFailed(ctx context.Context, step *floxy.WorkflowStep, err error) error {
+func (p *MetricsPlugin) OnStepFailed(ctx context.Context, instance *floxy.WorkflowInstance, step *floxy.WorkflowStep, err error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -135,8 +137,8 @@ func (p *MetricsPlugin) OnStepFailed(ctx context.Context, step *floxy.WorkflowSt
 	delete(p.stepStartTimes, step.ID)
 
 	if p.collector != nil {
-		p.collector.RecordStepFailed(step.InstanceID, step.StepName, step.StepType, duration)
-		p.collector.RecordStepStatus(step.InstanceID, step.StepName, step.Status)
+		p.collector.RecordStepFailed(step.InstanceID, instance.WorkflowID, step.StepName, step.StepType, duration)
+		p.collector.RecordStepStatus(step.InstanceID, instance.WorkflowID, step.StepName, step.Status)
 	}
 
 	return nil

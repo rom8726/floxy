@@ -441,7 +441,7 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 
 	// PLUGIN HOOK: OnStepStart
 	if engine.pluginManager != nil {
-		if err := engine.pluginManager.ExecuteStepStart(ctx, step); err != nil {
+		if err := engine.pluginManager.ExecuteStepStart(ctx, instance, step); err != nil {
 			return fmt.Errorf("plugin hook OnStepStart failed: %w", err)
 		}
 	}
@@ -509,7 +509,7 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 	if stepErr != nil {
 		// PLUGIN HOOK: OnStepFailed
 		if engine.pluginManager != nil {
-			if errPlugin := engine.pluginManager.ExecuteStepFailed(ctx, step, stepErr); errPlugin != nil {
+			if errPlugin := engine.pluginManager.ExecuteStepFailed(ctx, instance, step, stepErr); errPlugin != nil {
 				slog.Warn("[floxy] plugin hook OnStepFailed failed", "error", err)
 			}
 		}
@@ -519,7 +519,7 @@ func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstanc
 
 	// PLUGIN HOOK: OnStepComplete
 	if engine.pluginManager != nil {
-		if err := engine.pluginManager.ExecuteStepComplete(ctx, step); err != nil {
+		if err := engine.pluginManager.ExecuteStepComplete(ctx, instance, step); err != nil {
 			slog.Warn("[floxy] plugin hook OnStepComplete failed", "error", err)
 		}
 	}

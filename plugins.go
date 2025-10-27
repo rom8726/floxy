@@ -28,9 +28,9 @@ type Plugin interface {
 	OnWorkflowStart(ctx context.Context, instance *WorkflowInstance) error
 	OnWorkflowComplete(ctx context.Context, instance *WorkflowInstance) error
 	OnWorkflowFailed(ctx context.Context, instance *WorkflowInstance) error
-	OnStepStart(ctx context.Context, step *WorkflowStep) error
-	OnStepComplete(ctx context.Context, step *WorkflowStep) error
-	OnStepFailed(ctx context.Context, step *WorkflowStep, err error) error
+	OnStepStart(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error
+	OnStepComplete(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error
+	OnStepFailed(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error) error
 }
 
 // BasePlugin provides default no-op implementations
@@ -54,11 +54,11 @@ func (p BasePlugin) OnWorkflowComplete(context.Context, *WorkflowInstance) error
 func (p BasePlugin) OnWorkflowFailed(context.Context, *WorkflowInstance) error {
 	return nil
 }
-func (p BasePlugin) OnStepStart(context.Context, *WorkflowStep) error { return nil }
-func (p BasePlugin) OnStepComplete(context.Context, *WorkflowStep) error {
+func (p BasePlugin) OnStepStart(context.Context, *WorkflowInstance, *WorkflowStep) error { return nil }
+func (p BasePlugin) OnStepComplete(context.Context, *WorkflowInstance, *WorkflowStep) error {
 	return nil
 }
-func (p BasePlugin) OnStepFailed(context.Context, *WorkflowStep, error) error {
+func (p BasePlugin) OnStepFailed(context.Context, *WorkflowInstance, *WorkflowStep, error) error {
 	return nil
 }
 
@@ -124,12 +124,12 @@ func (pm *PluginManager) ExecuteWorkflowFailed(ctx context.Context, instance *Wo
 	return nil
 }
 
-func (pm *PluginManager) ExecuteStepStart(ctx context.Context, step *WorkflowStep) error {
+func (pm *PluginManager) ExecuteStepStart(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
 	for _, plugin := range pm.plugins {
-		if err := plugin.OnStepStart(ctx, step); err != nil {
+		if err := plugin.OnStepStart(ctx, instance, step); err != nil {
 			return fmt.Errorf("plugin %s failed: %w", plugin.Name(), err)
 		}
 	}
@@ -137,12 +137,12 @@ func (pm *PluginManager) ExecuteStepStart(ctx context.Context, step *WorkflowSte
 	return nil
 }
 
-func (pm *PluginManager) ExecuteStepComplete(ctx context.Context, step *WorkflowStep) error {
+func (pm *PluginManager) ExecuteStepComplete(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
 	for _, plugin := range pm.plugins {
-		if err := plugin.OnStepComplete(ctx, step); err != nil {
+		if err := plugin.OnStepComplete(ctx, instance, step); err != nil {
 			slog.Error("[floxy] plugin error on step complete", "plugin", plugin.Name(), "error", err)
 		}
 	}
@@ -150,12 +150,12 @@ func (pm *PluginManager) ExecuteStepComplete(ctx context.Context, step *Workflow
 	return nil
 }
 
-func (pm *PluginManager) ExecuteStepFailed(ctx context.Context, step *WorkflowStep, err error) error {
+func (pm *PluginManager) ExecuteStepFailed(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
 	for _, plugin := range pm.plugins {
-		if pluginErr := plugin.OnStepFailed(ctx, step, err); pluginErr != nil {
+		if pluginErr := plugin.OnStepFailed(ctx, instance, step, err); pluginErr != nil {
 			slog.Error("[floxy] plugin error on step failed", "plugin", plugin.Name(), "error", err)
 		}
 	}
