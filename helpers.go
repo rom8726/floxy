@@ -50,9 +50,9 @@ func (h *JSONHandler) Execute(
 }
 
 // === TypedHandler ===
-type TypedHandler[I, O any] struct {
+type TypedHandler[IN, OUT any] struct {
 	name string
-	fn   func(ctx context.Context, stepCtx StepContext, input I) (O, error)
+	fn   func(ctx context.Context, stepCtx StepContext, input IN) (OUT, error)
 }
 
 func NewTypedHandler[I, O any](
@@ -65,16 +65,16 @@ func NewTypedHandler[I, O any](
 	}
 }
 
-func (h *TypedHandler[I, O]) Name() string {
+func (h *TypedHandler[IN, OUT]) Name() string {
 	return h.name
 }
 
-func (h *TypedHandler[I, O]) Execute(
+func (h *TypedHandler[IN, OUT]) Execute(
 	ctx context.Context,
 	stepCtx StepContext,
 	input json.RawMessage,
 ) (json.RawMessage, error) {
-	var data I
+	var data IN
 	if err := json.Unmarshal(input, &data); err != nil {
 		return nil, fmt.Errorf("unmarshal input: %w", err)
 	}
