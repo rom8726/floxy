@@ -57,12 +57,10 @@ func main() {
 	engine := floxy.NewEngine(pool)
 	defer engine.Shutdown()
 
-	// Run DB migrations
 	if err := floxy.RunMigrations(ctx, pool); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
-	// Register handlers
 	engine.RegisterHandler(&SimpleOKHandler{})
 	engine.RegisterHandler(&MaybeFailHandler{})
 
@@ -80,7 +78,6 @@ func main() {
 		log.Fatalf("failed to register workflow: %v", err)
 	}
 
-	// Start worker pool
 	workerPool := floxy.NewWorkerPool(engine, 2, 250*time.Millisecond)
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -125,7 +122,6 @@ func main() {
 		log.Printf("final status: %s", status)
 	}
 
-	// Keep the process alive until interrupted to inspect logs
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	log.Printf("press Ctrl+C to exit")
