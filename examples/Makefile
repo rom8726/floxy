@@ -1,4 +1,4 @@
-.PHONY: help hello ecommerce data-pipeline microservices all clean
+.PHONY: help hello ecommerce data-pipeline microservices dead-letter-queue all clean
 
 help: ## Show this help message
 	@echo "Available targets:"
@@ -24,3 +24,6 @@ rollback: ## Run rollback example
 
 condition: ## Run condition example
 	cd condition && go mod tidy && go run main.go
+
+dead-letter-queue: ## Run DLQ example (move to DLQ and requeue)
+	cd dead-letter-queue && go mod tidy && go run main.go
