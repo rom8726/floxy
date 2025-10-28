@@ -131,7 +131,7 @@ func TestDLQ_RequeueFromDLQ(t *testing.T) {
 
 	// Create DLQ record manually
 	_, err = pool.Exec(ctx, `
-		INSERT INTO workflows.dead_letter_queue 
+		INSERT INTO workflows.workflow_dlq 
 		(instance_id, workflow_id, step_id, step_name, step_type, input, error, reason)
 		SELECT $1, $2, id, 'step2', 'task', input, 'Manual failure for testing', 'manual test'
 		FROM workflows.workflow_steps 
@@ -231,7 +231,7 @@ func TestDLQ_RequeueWithNewInput(t *testing.T) {
 
 	// Create DLQ record manually
 	_, err = pool.Exec(ctx, `
-		INSERT INTO workflows.dead_letter_queue 
+		INSERT INTO workflows.workflow_dlq 
 		(instance_id, workflow_id, step_id, step_name, step_type, input, error, reason)
 		SELECT $1, $2, id, 'retry', 'task', input, 'Simulated failure', 'manual test'
 		FROM workflows.workflow_steps 
@@ -351,7 +351,7 @@ func getDLQRecordsForInstance(ctx context.Context, pool *pgxpool.Pool, instanceI
 	const query = `
 		SELECT id, instance_id, workflow_id, step_id, step_name, step_type, 
 		       input, error, reason, created_at
-		FROM workflows.dead_letter_queue
+		FROM workflows.workflow_dlq
 		WHERE instance_id = $1
 		ORDER BY created_at DESC`
 

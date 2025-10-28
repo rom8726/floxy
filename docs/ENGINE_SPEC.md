@@ -788,7 +788,7 @@ When `WithDLQEnabled(true)` is set:
 
 1. **Retry Exhausted**: After all retry attempts are exhausted
 2. **Step Paused**: Failed step status → `paused` (not `failed`)
-3. **DLQ Record Created**: Step information is stored in `workflows.dead_letter_queue` table:
+3. **DLQ Record Created**: Step information is stored in `workflows.workflow_dlq` table:
    - Instance ID and Workflow ID
    - Step ID, name, and type
    - Original input data
@@ -935,26 +935,6 @@ investigationResult := struct {
 
 newInput, _ := json.Marshal(investigationResult)
 err := engine.RequeueFromDLQ(ctx, dlqID, &newInput)
-```
-
-**Monitoring DLQ:**
-
-```go
-// Query DLQ records for a workflow instance (implement custom function)
-type DLQRecord struct {
-    ID         int64
-    InstanceID int64
-    StepName   string
-    Error      string
-    Reason     string
-    CreatedAt  time.Time
-}
-
-// Custom query to retrieve DLQ records
-func GetDLQRecords(ctx context.Context, instanceID int64) ([]DLQRecord, error) {
-    // Implementation depends on your database access method
-    // Query: SELECT * FROM workflows.dead_letter_queue WHERE instance_id = $1
-}
 ```
 
 **Integration Testing:**

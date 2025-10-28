@@ -993,7 +993,7 @@ func (store *StoreImpl) CreateDeadLetterRecord(
 	executor := store.getExecutor(ctx)
 
 	const query = `
-INSERT INTO workflows.dead_letter_queue (
+INSERT INTO workflows.workflow_dlq (
 	instance_id, workflow_id, step_id, step_name, step_type, input, error, reason
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
@@ -1020,7 +1020,7 @@ func (store *StoreImpl) RequeueDeadLetter(
 	const query = `
 WITH dlq AS (
     SELECT id, instance_id, step_id, input
-    FROM workflows.dead_letter_queue
+    FROM workflows.workflow_dlq
     WHERE id = $1
     FOR UPDATE
 ), upd_step AS (
@@ -1052,7 +1052,7 @@ WITH dlq AS (
     WHERE ws.instance_id = upd_step.instance_id AND ws.step_type = 'join' AND ws.status = 'paused'
     RETURNING ws.id
 )
-DELETE FROM workflows.dead_letter_queue d USING dlq WHERE d.id = dlq.id;`
+DELETE FROM workflows.workflow_dlq d USING dlq WHERE d.id = dlq.id;`
 
 	var input any
 	if newInput != nil {
@@ -1069,7 +1069,7 @@ DELETE FROM workflows.dead_letter_queue d USING dlq WHERE d.id = dlq.id;`
 func (store *StoreImpl) ListDeadLetters(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error) {
 	executor := store.getExecutor(ctx)
 
-	const countQuery = `SELECT COUNT(*) FROM workflows.dead_letter_queue`
+	const countQuery = `SELECT COUNT(*) FROM workflows.workflow_dlq`
 	var total int64
 	if err := executor.QueryRow(ctx, countQuery).Scan(&total); err != nil {
 		return nil, 0, err
@@ -1077,7 +1077,7 @@ func (store *StoreImpl) ListDeadLetters(ctx context.Context, offset int, limit i
 
 	const selectQuery = `
 SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at
-FROM workflows.dead_letter_queue
+FROM workflows.workflow_dlq
 ORDER BY created_at DESC
 OFFSET $1 LIMIT $2`
 
@@ -1118,7 +1118,7 @@ func (store *StoreImpl) GetDeadLetterByID(ctx context.Context, id int64) (*DeadL
 
 	const query = `
 SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at
-FROM workflows.dead_letter_queue
+FROM workflows.workflow_dlq
 WHERE id = $1`
 
 	rec := DeadLetterRecord{}

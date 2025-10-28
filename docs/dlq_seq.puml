@@ -57,7 +57,7 @@ else Step Failure (DLQ Mode)
     S --> E: OK
 
     E -> S: CreateDeadLetterRecord(rec)
-    S -> DB: INSERT INTO workflows.dead_letter_queue (...)
+    S -> DB: INSERT INTO workflows.workflow_dlq (...)
     DB --> S: OK
     S --> E: OK
 
@@ -126,7 +126,7 @@ DB --> S: OK
 S -> DB: UPDATE workflow_steps SET status='pending'
 S -> DB:   WHERE instance_id=dlq.instance_id AND step_type='join' AND status='paused'
 DB --> S: OK
-S -> DB: DELETE FROM workflows.dead_letter_queue WHERE id=dlq.id
+S -> DB: DELETE FROM workflows.workflow_dlq WHERE id=dlq.id
 DB --> S: OK
 S --> E: OK
 
@@ -185,7 +185,7 @@ else Step Failure (DLQ Mode still enabled)
     S --> E: OK
 
     E -> S: CreateDeadLetterRecord(...)
-    S -> DB: INSERT INTO dead_letter_queue
+    S -> DB: INSERT INTO workflow_dlq
     DB --> S: OK
 
     E -> S: PauseActiveStepsAndClearQueue()
