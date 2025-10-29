@@ -19,6 +19,7 @@ floxy means "flow" + "flux" + "tiny".
 - [Examples](#examples)
 - [Integration Tests](#integration-tests)
 - [Database Migrations](#database-migrations)
+- [Dead Letter Queue](#dead-letter-queue-dlq)
 - [Known Issues](#known-issues)
   - [Condition Steps in Forked Branches](#condition-steps-in-forked-branches)
 - [Installation](#installation)
@@ -36,6 +37,7 @@ floxy means "flow" + "flux" + "tiny".
 - **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps
 - **Human-in-the-loop**: Interactive workflow steps that pause execution for human decisions
 - **Cancel\Abort**: Possibility to cancel workflow with rollback to the root step and immediate abort workflow
+- **Dead Letter Queue (DLQ)**: Two modes for error handling - Classic Saga with rollback/compensation or DLQ Mode with paused workflow and manual recovery
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 
@@ -43,7 +45,7 @@ PlantUML diagrams of compensations flow: [DIAGRAMS](docs/SAGA_COMPENSATION_DIAGR
 
 Engine specification: [ENGINE](docs/ENGINE_SPEC.md)
 
-UI for visualizing workflows: [UI](https://github.com/rom8726/floxy-ui)
+Web UI for visualizing and managing workflows: [Web UI](https://github.com/rom8726/floxy-ui)
 
 ## Why Floxy?
 
@@ -128,7 +130,7 @@ func main() {
     engine.RegisterHandler(&CompensationHandler{})
     
     // Define workflow using Builder DSL
-    workflow, err := floxy.NewBuilder("order-processing", 1).
+    workflow, err := floxy.NewBuilder("order-processing", 1, floxy.WithDLQEnabled(true)).
         Step("process-payment", "payment", floxy.WithStepMaxRetries(3)).
         OnFailure("refund-payment", "compensation").
         SavePoint("payment-checkpoint").
@@ -279,6 +281,104 @@ Available migrations:
 - `005_add_idempotency_key_to_steps.up.sql`: Idempotency Key added to step table
 - `006_add_human_in_the_loop_step.up.sql`: Human-in-the-loop step support and decision tracking
 - `007_add_workflow_cancel_requests_table.up.sql`: Cancel requests table
+- `009_add_dead_letter_queue.up.sql`: Dead Letter Queue for failed steps
+
+## Dead Letter Queue (DLQ)
+
+### Overview
+
+Floxy supports two different error handling modes:
+
+1. **Classic Saga Mode** (default): When a step fails, the engine performs rollback to the last SavePoint and executes compensation handlers
+2. **DLQ Mode**: Rollback is disabled, the workflow pauses in `dlq` state, and failed steps are stored in DLQ for manual investigation
+
+### DLQ Mode Behavior
+
+When DLQ is enabled for a workflow:
+
+- **No Rollback**: Compensation handlers are **not** executed on failure
+- **Workflow Paused**: Instance status → `dlq` (not terminal, can be resumed)
+- **Active Steps Frozen**: All `running` steps are set to `paused` status
+- **Queue Cleared**: Instance queue is cleared to prevent further progress
+- **Manual Recovery**: After fixing issues, use `RequeueFromDLQ` to resume
+
+### Enabling DLQ Mode
+
+Enable DLQ for a workflow during definition:
+
+```go
+workflow, err := floxy.NewBuilder("payment-processing", 1, floxy.WithDLQEnabled(true)).
+    Step("validate-payment", "payment-validator", floxy.WithStepMaxRetries(2)).
+    Then("process-payment", "payment-processor", floxy.WithStepMaxRetries(3)).
+    Then("notify-user", "notification-service", floxy.WithStepMaxRetries(1)).
+    Build()
+```
+
+### Fork/Join with DLQ
+
+When using Fork/Join with DLQ enabled:
+
+- **Parallel Branches**: Other branches continue to completion before workflow pauses
+- **Join Step**: Created as `paused` when all dependencies are met but the instance is in `dlq` state
+- **Requeue Behavior**: After requeuing the failed step, join transitions from `paused` → `pending` for automatic continuation
+
+### RequeueFromDLQ
+
+The `RequeueFromDLQ` method restores a failed step from DLQ and resumes workflow execution:
+
+```go
+// Requeue with original input
+err := engine.RequeueFromDLQ(ctx, dlqID, nil)
+
+// Requeue with modified input
+newInput := json.RawMessage(`{"status": "fixed", "data": "corrected"}`)
+err := engine.RequeueFromDLQ(ctx, dlqID, &newInput)
+```
+
+**What happens during requeue:**
+1. Instance status: `dlq` → `running`
+2. Failed step: `paused` → `pending` (retry counters reset)
+3. Input updated if `newInput` provided
+4. Step enqueued for execution
+5. Join steps: `paused` → `pending`
+6. DLQ record deleted
+
+### Use Cases for DLQ Mode
+
+- **Manual Data Review**: Steps that require human inspection before retry
+- **External Service Outages**: When downstream services are temporarily unavailable
+- **Data Quality Issues**: Malformed data requiring manual correction
+- **Complex Debugging**: When failures need detailed investigation
+- **Business Approval Workflows**: Where failures should pause for review rather than auto-rollback
+
+### Example: Payment Processing with DLQ
+
+```go
+// Define workflow with DLQ enabled
+workflow, err := floxy.NewBuilder("payment-processing", 1, floxy.WithDLQEnabled(true)).
+    Step("validate-payment", "payment-validator", floxy.WithStepMaxRetries(2)).
+    Then("process-payment", "payment-processor", floxy.WithStepMaxRetries(3)).
+    Then("notify-user", "notification-service", floxy.WithStepMaxRetries(1)).
+    Build()
+
+// Register and start workflow
+err = engine.RegisterWorkflow(ctx, workflow)
+instanceID, err := engine.Start(ctx, "payment-processing-v1", input)
+
+// Process workflow - if step fails, workflow goes to dlq state
+for {
+    empty, err := engine.ExecuteNext(ctx, "worker1")
+    if empty || err != nil {
+        break
+    }
+}
+
+// Later: investigate failure in DLQ, fix issue, then requeue
+newInput := json.RawMessage(`{"payment_id": "corrected-id", "amount": 100.0}`)
+err = engine.RequeueFromDLQ(ctx, dlqID, &newInput)
+
+// Workflow resumes from where it paused
+```
 
 ## Known Issues
 

@@ -254,6 +254,69 @@ func (_c *MockIEngine_MakeHumanDecision_Call) RunAndReturn(run func(ctx context.
 	return _c
 }
 
+// RequeueFromDLQ provides a mock function for the type MockIEngine
+func (_mock *MockIEngine) RequeueFromDLQ(ctx context.Context, dlqID int64, newInput *json.RawMessage) error {
+	ret := _mock.Called(ctx, dlqID, newInput)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequeueFromDLQ")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, *json.RawMessage) error); ok {
+		r0 = returnFunc(ctx, dlqID, newInput)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockIEngine_RequeueFromDLQ_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequeueFromDLQ'
+type MockIEngine_RequeueFromDLQ_Call struct {
+	*mock.Call
+}
+
+// RequeueFromDLQ is a helper method to define mock.On call
+//   - ctx context.Context
+//   - dlqID int64
+//   - newInput *json.RawMessage
+func (_e *MockIEngine_Expecter) RequeueFromDLQ(ctx interface{}, dlqID interface{}, newInput interface{}) *MockIEngine_RequeueFromDLQ_Call {
+	return &MockIEngine_RequeueFromDLQ_Call{Call: _e.mock.On("RequeueFromDLQ", ctx, dlqID, newInput)}
+}
+
+func (_c *MockIEngine_RequeueFromDLQ_Call) Run(run func(ctx context.Context, dlqID int64, newInput *json.RawMessage)) *MockIEngine_RequeueFromDLQ_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 *json.RawMessage
+		if args[2] != nil {
+			arg2 = args[2].(*json.RawMessage)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockIEngine_RequeueFromDLQ_Call) Return(err error) *MockIEngine_RequeueFromDLQ_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockIEngine_RequeueFromDLQ_Call) RunAndReturn(run func(ctx context.Context, dlqID int64, newInput *json.RawMessage) error) *MockIEngine_RequeueFromDLQ_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockMonitor creates a new instance of MockMonitor. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockMonitor(t interface {
@@ -415,16 +478,16 @@ func (_c *MockPlugin_Name_Call) RunAndReturn(run func() string) *MockPlugin_Name
 }
 
 // OnStepComplete provides a mock function for the type MockPlugin
-func (_mock *MockPlugin) OnStepComplete(ctx context.Context, step *WorkflowStep) error {
-	ret := _mock.Called(ctx, step)
+func (_mock *MockPlugin) OnStepComplete(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
+	ret := _mock.Called(ctx, instance, step)
 
 	if len(ret) == 0 {
 		panic("no return value specified for OnStepComplete")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowStep) error); ok {
-		r0 = returnFunc(ctx, step)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowInstance, *WorkflowStep) error); ok {
+		r0 = returnFunc(ctx, instance, step)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -438,24 +501,30 @@ type MockPlugin_OnStepComplete_Call struct {
 
 // OnStepComplete is a helper method to define mock.On call
 //   - ctx context.Context
+//   - instance *WorkflowInstance
 //   - step *WorkflowStep
-func (_e *MockPlugin_Expecter) OnStepComplete(ctx interface{}, step interface{}) *MockPlugin_OnStepComplete_Call {
-	return &MockPlugin_OnStepComplete_Call{Call: _e.mock.On("OnStepComplete", ctx, step)}
+func (_e *MockPlugin_Expecter) OnStepComplete(ctx interface{}, instance interface{}, step interface{}) *MockPlugin_OnStepComplete_Call {
+	return &MockPlugin_OnStepComplete_Call{Call: _e.mock.On("OnStepComplete", ctx, instance, step)}
 }
 
-func (_c *MockPlugin_OnStepComplete_Call) Run(run func(ctx context.Context, step *WorkflowStep)) *MockPlugin_OnStepComplete_Call {
+func (_c *MockPlugin_OnStepComplete_Call) Run(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep)) *MockPlugin_OnStepComplete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *WorkflowStep
+		var arg1 *WorkflowInstance
 		if args[1] != nil {
-			arg1 = args[1].(*WorkflowStep)
+			arg1 = args[1].(*WorkflowInstance)
+		}
+		var arg2 *WorkflowStep
+		if args[2] != nil {
+			arg2 = args[2].(*WorkflowStep)
 		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -466,22 +535,22 @@ func (_c *MockPlugin_OnStepComplete_Call) Return(err error) *MockPlugin_OnStepCo
 	return _c
 }
 
-func (_c *MockPlugin_OnStepComplete_Call) RunAndReturn(run func(ctx context.Context, step *WorkflowStep) error) *MockPlugin_OnStepComplete_Call {
+func (_c *MockPlugin_OnStepComplete_Call) RunAndReturn(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error) *MockPlugin_OnStepComplete_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // OnStepFailed provides a mock function for the type MockPlugin
-func (_mock *MockPlugin) OnStepFailed(ctx context.Context, step *WorkflowStep, err error) error {
-	ret := _mock.Called(ctx, step, err)
+func (_mock *MockPlugin) OnStepFailed(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error) error {
+	ret := _mock.Called(ctx, instance, step, err)
 
 	if len(ret) == 0 {
 		panic("no return value specified for OnStepFailed")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowStep, error) error); ok {
-		r0 = returnFunc(ctx, step, err)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowInstance, *WorkflowStep, error) error); ok {
+		r0 = returnFunc(ctx, instance, step, err)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -495,30 +564,36 @@ type MockPlugin_OnStepFailed_Call struct {
 
 // OnStepFailed is a helper method to define mock.On call
 //   - ctx context.Context
+//   - instance *WorkflowInstance
 //   - step *WorkflowStep
 //   - err error
-func (_e *MockPlugin_Expecter) OnStepFailed(ctx interface{}, step interface{}, err interface{}) *MockPlugin_OnStepFailed_Call {
-	return &MockPlugin_OnStepFailed_Call{Call: _e.mock.On("OnStepFailed", ctx, step, err)}
+func (_e *MockPlugin_Expecter) OnStepFailed(ctx interface{}, instance interface{}, step interface{}, err interface{}) *MockPlugin_OnStepFailed_Call {
+	return &MockPlugin_OnStepFailed_Call{Call: _e.mock.On("OnStepFailed", ctx, instance, step, err)}
 }
 
-func (_c *MockPlugin_OnStepFailed_Call) Run(run func(ctx context.Context, step *WorkflowStep, err error)) *MockPlugin_OnStepFailed_Call {
+func (_c *MockPlugin_OnStepFailed_Call) Run(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error)) *MockPlugin_OnStepFailed_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *WorkflowStep
+		var arg1 *WorkflowInstance
 		if args[1] != nil {
-			arg1 = args[1].(*WorkflowStep)
+			arg1 = args[1].(*WorkflowInstance)
 		}
-		var arg2 error
+		var arg2 *WorkflowStep
 		if args[2] != nil {
-			arg2 = args[2].(error)
+			arg2 = args[2].(*WorkflowStep)
+		}
+		var arg3 error
+		if args[3] != nil {
+			arg3 = args[3].(error)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -529,22 +604,22 @@ func (_c *MockPlugin_OnStepFailed_Call) Return(err1 error) *MockPlugin_OnStepFai
 	return _c
 }
 
-func (_c *MockPlugin_OnStepFailed_Call) RunAndReturn(run func(ctx context.Context, step *WorkflowStep, err error) error) *MockPlugin_OnStepFailed_Call {
+func (_c *MockPlugin_OnStepFailed_Call) RunAndReturn(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error) error) *MockPlugin_OnStepFailed_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // OnStepStart provides a mock function for the type MockPlugin
-func (_mock *MockPlugin) OnStepStart(ctx context.Context, step *WorkflowStep) error {
-	ret := _mock.Called(ctx, step)
+func (_mock *MockPlugin) OnStepStart(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
+	ret := _mock.Called(ctx, instance, step)
 
 	if len(ret) == 0 {
 		panic("no return value specified for OnStepStart")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowStep) error); ok {
-		r0 = returnFunc(ctx, step)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *WorkflowInstance, *WorkflowStep) error); ok {
+		r0 = returnFunc(ctx, instance, step)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -558,24 +633,30 @@ type MockPlugin_OnStepStart_Call struct {
 
 // OnStepStart is a helper method to define mock.On call
 //   - ctx context.Context
+//   - instance *WorkflowInstance
 //   - step *WorkflowStep
-func (_e *MockPlugin_Expecter) OnStepStart(ctx interface{}, step interface{}) *MockPlugin_OnStepStart_Call {
-	return &MockPlugin_OnStepStart_Call{Call: _e.mock.On("OnStepStart", ctx, step)}
+func (_e *MockPlugin_Expecter) OnStepStart(ctx interface{}, instance interface{}, step interface{}) *MockPlugin_OnStepStart_Call {
+	return &MockPlugin_OnStepStart_Call{Call: _e.mock.On("OnStepStart", ctx, instance, step)}
 }
 
-func (_c *MockPlugin_OnStepStart_Call) Run(run func(ctx context.Context, step *WorkflowStep)) *MockPlugin_OnStepStart_Call {
+func (_c *MockPlugin_OnStepStart_Call) Run(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep)) *MockPlugin_OnStepStart_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *WorkflowStep
+		var arg1 *WorkflowInstance
 		if args[1] != nil {
-			arg1 = args[1].(*WorkflowStep)
+			arg1 = args[1].(*WorkflowInstance)
+		}
+		var arg2 *WorkflowStep
+		if args[2] != nil {
+			arg2 = args[2].(*WorkflowStep)
 		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -586,7 +667,7 @@ func (_c *MockPlugin_OnStepStart_Call) Return(err error) *MockPlugin_OnStepStart
 	return _c
 }
 
-func (_c *MockPlugin_OnStepStart_Call) RunAndReturn(run func(ctx context.Context, step *WorkflowStep) error) *MockPlugin_OnStepStart_Call {
+func (_c *MockPlugin_OnStepStart_Call) RunAndReturn(run func(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error) *MockPlugin_OnStepStart_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -763,18 +844,18 @@ func (_c *MockPlugin_OnWorkflowStart_Call) RunAndReturn(run func(ctx context.Con
 }
 
 // Priority provides a mock function for the type MockPlugin
-func (_mock *MockPlugin) Priority() int {
+func (_mock *MockPlugin) Priority() PluginPriority {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Priority")
 	}
 
-	var r0 int
-	if returnFunc, ok := ret.Get(0).(func() int); ok {
+	var r0 PluginPriority
+	if returnFunc, ok := ret.Get(0).(func() PluginPriority); ok {
 		r0 = returnFunc()
 	} else {
-		r0 = ret.Get(0).(int)
+		r0 = ret.Get(0).(PluginPriority)
 	}
 	return r0
 }
@@ -796,12 +877,12 @@ func (_c *MockPlugin_Priority_Call) Run(run func()) *MockPlugin_Priority_Call {
 	return _c
 }
 
-func (_c *MockPlugin_Priority_Call) Return(n int) *MockPlugin_Priority_Call {
-	_c.Call.Return(n)
+func (_c *MockPlugin_Priority_Call) Return(pluginPriority PluginPriority) *MockPlugin_Priority_Call {
+	_c.Call.Return(pluginPriority)
 	return _c
 }
 
-func (_c *MockPlugin_Priority_Call) RunAndReturn(run func() int) *MockPlugin_Priority_Call {
+func (_c *MockPlugin_Priority_Call) RunAndReturn(run func() PluginPriority) *MockPlugin_Priority_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1468,6 +1549,63 @@ func (_c *MockStore_CreateCancelRequest_Call) Return(err error) *MockStore_Creat
 }
 
 func (_c *MockStore_CreateCancelRequest_Call) RunAndReturn(run func(ctx context.Context, req *WorkflowCancelRequest) error) *MockStore_CreateCancelRequest_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateDeadLetterRecord provides a mock function for the type MockStore
+func (_mock *MockStore) CreateDeadLetterRecord(ctx context.Context, rec *DeadLetterRecord) error {
+	ret := _mock.Called(ctx, rec)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateDeadLetterRecord")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *DeadLetterRecord) error); ok {
+		r0 = returnFunc(ctx, rec)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_CreateDeadLetterRecord_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateDeadLetterRecord'
+type MockStore_CreateDeadLetterRecord_Call struct {
+	*mock.Call
+}
+
+// CreateDeadLetterRecord is a helper method to define mock.On call
+//   - ctx context.Context
+//   - rec *DeadLetterRecord
+func (_e *MockStore_Expecter) CreateDeadLetterRecord(ctx interface{}, rec interface{}) *MockStore_CreateDeadLetterRecord_Call {
+	return &MockStore_CreateDeadLetterRecord_Call{Call: _e.mock.On("CreateDeadLetterRecord", ctx, rec)}
+}
+
+func (_c *MockStore_CreateDeadLetterRecord_Call) Run(run func(ctx context.Context, rec *DeadLetterRecord)) *MockStore_CreateDeadLetterRecord_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *DeadLetterRecord
+		if args[1] != nil {
+			arg1 = args[1].(*DeadLetterRecord)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_CreateDeadLetterRecord_Call) Return(err error) *MockStore_CreateDeadLetterRecord_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_CreateDeadLetterRecord_Call) RunAndReturn(run func(ctx context.Context, rec *DeadLetterRecord) error) *MockStore_CreateDeadLetterRecord_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2191,6 +2329,74 @@ func (_c *MockStore_GetCancelRequest_Call) Return(workflowCancelRequest *Workflo
 }
 
 func (_c *MockStore_GetCancelRequest_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error)) *MockStore_GetCancelRequest_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetDeadLetterByID provides a mock function for the type MockStore
+func (_mock *MockStore) GetDeadLetterByID(ctx context.Context, id int64) (*DeadLetterRecord, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDeadLetterByID")
+	}
+
+	var r0 *DeadLetterRecord
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) (*DeadLetterRecord, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) *DeadLetterRecord); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*DeadLetterRecord)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockStore_GetDeadLetterByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDeadLetterByID'
+type MockStore_GetDeadLetterByID_Call struct {
+	*mock.Call
+}
+
+// GetDeadLetterByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id int64
+func (_e *MockStore_Expecter) GetDeadLetterByID(ctx interface{}, id interface{}) *MockStore_GetDeadLetterByID_Call {
+	return &MockStore_GetDeadLetterByID_Call{Call: _e.mock.On("GetDeadLetterByID", ctx, id)}
+}
+
+func (_c *MockStore_GetDeadLetterByID_Call) Run(run func(ctx context.Context, id int64)) *MockStore_GetDeadLetterByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetDeadLetterByID_Call) Return(deadLetterRecord *DeadLetterRecord, err error) *MockStore_GetDeadLetterByID_Call {
+	_c.Call.Return(deadLetterRecord, err)
+	return _c
+}
+
+func (_c *MockStore_GetDeadLetterByID_Call) RunAndReturn(run func(ctx context.Context, id int64) (*DeadLetterRecord, error)) *MockStore_GetDeadLetterByID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -3067,6 +3273,86 @@ func (_c *MockStore_GetWorkflowSteps_Call) RunAndReturn(run func(ctx context.Con
 	return _c
 }
 
+// ListDeadLetters provides a mock function for the type MockStore
+func (_mock *MockStore) ListDeadLetters(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error) {
+	ret := _mock.Called(ctx, offset, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDeadLetters")
+	}
+
+	var r0 []DeadLetterRecord
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]DeadLetterRecord, int64, error)); ok {
+		return returnFunc(ctx, offset, limit)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []DeadLetterRecord); ok {
+		r0 = returnFunc(ctx, offset, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]DeadLetterRecord)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) int64); ok {
+		r1 = returnFunc(ctx, offset, limit)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, int, int) error); ok {
+		r2 = returnFunc(ctx, offset, limit)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockStore_ListDeadLetters_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDeadLetters'
+type MockStore_ListDeadLetters_Call struct {
+	*mock.Call
+}
+
+// ListDeadLetters is a helper method to define mock.On call
+//   - ctx context.Context
+//   - offset int
+//   - limit int
+func (_e *MockStore_Expecter) ListDeadLetters(ctx interface{}, offset interface{}, limit interface{}) *MockStore_ListDeadLetters_Call {
+	return &MockStore_ListDeadLetters_Call{Call: _e.mock.On("ListDeadLetters", ctx, offset, limit)}
+}
+
+func (_c *MockStore_ListDeadLetters_Call) Run(run func(ctx context.Context, offset int, limit int)) *MockStore_ListDeadLetters_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_ListDeadLetters_Call) Return(deadLetterRecords []DeadLetterRecord, n int64, err error) *MockStore_ListDeadLetters_Call {
+	_c.Call.Return(deadLetterRecords, n, err)
+	return _c
+}
+
+func (_c *MockStore_ListDeadLetters_Call) RunAndReturn(run func(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error)) *MockStore_ListDeadLetters_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // LogEvent provides a mock function for the type MockStore
 func (_mock *MockStore) LogEvent(ctx context.Context, instanceID int64, stepID *int64, eventType string, payload any) error {
 	ret := _mock.Called(ctx, instanceID, stepID, eventType, payload)
@@ -3142,6 +3428,63 @@ func (_c *MockStore_LogEvent_Call) RunAndReturn(run func(ctx context.Context, in
 	return _c
 }
 
+// PauseActiveStepsAndClearQueue provides a mock function for the type MockStore
+func (_mock *MockStore) PauseActiveStepsAndClearQueue(ctx context.Context, instanceID int64) error {
+	ret := _mock.Called(ctx, instanceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PauseActiveStepsAndClearQueue")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) error); ok {
+		r0 = returnFunc(ctx, instanceID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_PauseActiveStepsAndClearQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PauseActiveStepsAndClearQueue'
+type MockStore_PauseActiveStepsAndClearQueue_Call struct {
+	*mock.Call
+}
+
+// PauseActiveStepsAndClearQueue is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+func (_e *MockStore_Expecter) PauseActiveStepsAndClearQueue(ctx interface{}, instanceID interface{}) *MockStore_PauseActiveStepsAndClearQueue_Call {
+	return &MockStore_PauseActiveStepsAndClearQueue_Call{Call: _e.mock.On("PauseActiveStepsAndClearQueue", ctx, instanceID)}
+}
+
+func (_c *MockStore_PauseActiveStepsAndClearQueue_Call) Run(run func(ctx context.Context, instanceID int64)) *MockStore_PauseActiveStepsAndClearQueue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_PauseActiveStepsAndClearQueue_Call) Return(err error) *MockStore_PauseActiveStepsAndClearQueue_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_PauseActiveStepsAndClearQueue_Call) RunAndReturn(run func(ctx context.Context, instanceID int64) error) *MockStore_PauseActiveStepsAndClearQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RemoveFromQueue provides a mock function for the type MockStore
 func (_mock *MockStore) RemoveFromQueue(ctx context.Context, queueID int64) error {
 	ret := _mock.Called(ctx, queueID)
@@ -3195,6 +3538,69 @@ func (_c *MockStore_RemoveFromQueue_Call) Return(err error) *MockStore_RemoveFro
 }
 
 func (_c *MockStore_RemoveFromQueue_Call) RunAndReturn(run func(ctx context.Context, queueID int64) error) *MockStore_RemoveFromQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RequeueDeadLetter provides a mock function for the type MockStore
+func (_mock *MockStore) RequeueDeadLetter(ctx context.Context, dlqID int64, newInput *json.RawMessage) error {
+	ret := _mock.Called(ctx, dlqID, newInput)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequeueDeadLetter")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, *json.RawMessage) error); ok {
+		r0 = returnFunc(ctx, dlqID, newInput)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_RequeueDeadLetter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RequeueDeadLetter'
+type MockStore_RequeueDeadLetter_Call struct {
+	*mock.Call
+}
+
+// RequeueDeadLetter is a helper method to define mock.On call
+//   - ctx context.Context
+//   - dlqID int64
+//   - newInput *json.RawMessage
+func (_e *MockStore_Expecter) RequeueDeadLetter(ctx interface{}, dlqID interface{}, newInput interface{}) *MockStore_RequeueDeadLetter_Call {
+	return &MockStore_RequeueDeadLetter_Call{Call: _e.mock.On("RequeueDeadLetter", ctx, dlqID, newInput)}
+}
+
+func (_c *MockStore_RequeueDeadLetter_Call) Run(run func(ctx context.Context, dlqID int64, newInput *json.RawMessage)) *MockStore_RequeueDeadLetter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 *json.RawMessage
+		if args[2] != nil {
+			arg2 = args[2].(*json.RawMessage)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_RequeueDeadLetter_Call) Return(err error) *MockStore_RequeueDeadLetter_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_RequeueDeadLetter_Call) RunAndReturn(run func(ctx context.Context, dlqID int64, newInput *json.RawMessage) error) *MockStore_RequeueDeadLetter_Call {
 	_c.Call.Return(run)
 	return _c
 }

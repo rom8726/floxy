@@ -19,6 +19,7 @@ const (
 	EventConditionCheck      = "condition_check"
 	EventCancellationStarted = "cancellation_started"
 	EventAbortStarted        = "abort_started"
+	EventDLQRequeued         = "dlq_requeued"
 
 	// Event data keys
 	KeyWorkflowID    = "workflow_id"

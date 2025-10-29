@@ -1,0 +1,200 @@
+@startuml DLQ Mode Sequence
+
+' Title and context
+title DLQ Mode Flow in Floxy (No-Rollback, Manual Recovery via DLQ)
+
+' Participants (mirror naming style from saga_seq)
+participant "Engine" as E
+participant "Store" as S
+participant "StepHandler" as H
+participant "Worker" as W
+participant "API (DLQ)" as API
+participant "Database" as DB
+participant "Client/UI" as C
+
+' Legend
+note right of E
+DLQ Mode characteristics:
+- Rollback/compensation are disabled.
+- Failing step is paused and sent to DLQ.
+- Instance enters non-terminal state "dlq".
+- Queue for the instance is cleared to freeze progress.
+- Workers skip execution for dlq instances.
+- Requeue from DLQ puts the step back and switches instance dlq -> running.
+- Join steps paused in DLQ are moved back to pending on requeue.
+end note
+
+== Normal Step Execution (DLQ Mode Enabled) ==
+E -> S: ExecuteNext()
+S -> DB: DequeueStep()
+DB --> S: QueueItem
+S --> E: QueueItem
+
+E -> S: GetInstance()
+S --> E: WorkflowInstance(status=running)
+
+E -> S: GetStepsByInstance()
+S --> E: WorkflowStep[]
+
+E -> S: UpdateStep(status=running)
+S -> DB: UPDATE workflow_steps SET status='running'
+DB --> S: OK
+S --> E: OK
+
+E -> H: Execute(stepCtx, input)
+H --> E: output/error
+
+alt Step Success
+    E -> S: UpdateStep(status=completed, output)
+    S -> DB: UPDATE workflow_steps SET status='completed'
+    DB --> S: OK
+    S --> E: OK
+else Step Failure (DLQ Mode)
+    ' No rollback/compensation in DLQ mode
+    E -> S: UpdateStep(status=paused, error)
+    S -> DB: UPDATE workflow_steps SET status='paused', error=...
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: CreateDeadLetterRecord(rec)
+    S -> DB: INSERT INTO workflows.workflow_dlq (...)
+    DB --> S: OK
+    S --> E: OK
+
+    ' Freeze execution for this instance
+    E -> S: PauseActiveStepsAndClearQueue(instanceID)
+    S -> DB: UPDATE workflow_steps SET status='paused' WHERE status='running'
+    DB --> S: OK
+    S -> DB: DELETE FROM workflows.workflow_queue WHERE instance_id=...
+    DB --> S: OK
+
+    E -> S: UpdateInstanceStatus(status=dlq, error)
+    S -> DB: UPDATE workflow_instances SET status='dlq', error=...
+    DB --> S: OK
+    S --> E: OK
+
+    ' Notify join logic; in DLQ the join step will be created as paused
+    E -> S: notifyJoinSteps(..., success=false)
+    S -> DB: INSERT/UPDATE workflow_join_state
+    DB --> S: OK
+    note right
+    If a Join becomes ready while instance is dlq,
+    Engine creates the join step with status='paused'
+    and does not enqueue it.
+    end note
+end
+
+== Worker hygiene while instance is in DLQ ==
+W -> E: ExecuteNext()
+E -> S: DequeueStep()
+S -> DB: SELECT ... FROM workflow_queue
+DB --> S: QueueItem (may exist due to race)
+S --> E: QueueItem
+E -> S: GetInstance()
+S --> E: WorkflowInstance(status=dlq)
+
+note over E: Instance is dlq → skip execution and remove queue item
+E -> S: RemoveFromQueue(queueItemID)
+S -> DB: DELETE FROM workflow_queue WHERE id=...
+DB --> S: OK
+S --> E: OK
+
+== Parallel Flow (Fork/Join) nuance in DLQ ==
+note over E
+If one branch fails into DLQ:
+- Other branches may complete if already queued.
+- No new steps are (re)enqueued while instance is dlq.
+- When Join aggregates branches and detects a paused/DLQ branch,
+  Engine creates Join step as status='paused' and does not enqueue it.
+end note
+
+== Requeue from DLQ (Operator/API) ==
+C -> API: POST /api/dlq/{id}/requeue { new_input? }
+API -> E: RequeueFromDLQ(dlqID, newInput?)
+
+E -> S: RequeueDeadLetter(dlqID, newInput?)
+S -> DB: WITH dlq AS (... FOR UPDATE)
+S -> DB: UPDATE workflow_steps SET status='pending', input=COALESCE(newInput, dlq.input),
+S -> DB:   error=NULL, retry_count=0, compensation_retry_count=0,
+S -> DB:   started_at=NULL, completed_at=NULL WHERE id=dlq.step_id
+DB --> S: OK
+S -> DB: INSERT INTO workflow_queue(instance_id, step_id)
+DB --> S: OK
+S -> DB: UPDATE workflow_instances SET status='running', error=NULL
+S -> DB:   WHERE id=dlq.instance_id AND status IN ('failed','dlq')
+DB --> S: OK
+S -> DB: UPDATE workflow_steps SET status='pending'
+S -> DB:   WHERE instance_id=dlq.instance_id AND step_type='join' AND status='paused'
+DB --> S: OK
+S -> DB: DELETE FROM workflows.workflow_dlq WHERE id=dlq.id
+DB --> S: OK
+S --> E: OK
+
+note right of API
+Requeue effects:
+- Instance: dlq → running
+- Failing step: → pending, enqueued
+- Join steps: paused → pending
+- DLQ record: deleted
+- Optional: input overridden
+end note
+
+API --> C: 204 No Content
+
+== Resume Execution after Requeue ==
+W -> E: ExecuteNext()
+E -> S: DequeueStep()  ' returns the requeued step
+S -> DB: SELECT ... FROM workflow_queue
+DB --> S: QueueItem(stepID)
+S --> E: QueueItem
+
+E -> S: GetInstance()
+S --> E: WorkflowInstance(status=running)
+
+E -> S: GetStepsByInstance()
+S --> E: WorkflowStep[] (step status=pending)
+
+E -> S: UpdateStep(status=running)
+S -> DB: UPDATE workflow_steps SET status='running'
+DB --> S: OK
+S --> E: OK
+
+E -> H: Execute(stepCtx, input)
+H --> E: output/error
+
+alt Step Success
+    E -> S: UpdateStep(status=completed, output)
+    S -> DB: UPDATE workflow_steps SET status='completed'
+    DB --> S: OK
+    S --> E: OK
+
+    E -> E: notifyJoinSteps(..., success=true)
+    note right
+    If all branches complete and no unfinished steps remain,
+    Engine completes the workflow.
+    end note
+    E -> S: UpdateInstanceStatus(status=completed, output)
+    S -> DB: UPDATE workflow_instances SET status='completed', output=...
+    DB --> S: OK
+    S --> E: OK
+else Step Failure (DLQ Mode still enabled)
+    ' The same DLQ process repeats: pause step, write DLQ, freeze, instance->dlq
+    E -> S: UpdateStep(status=paused, error)
+    S -> DB: UPDATE workflow_steps SET status='paused'
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: CreateDeadLetterRecord(...)
+    S -> DB: INSERT INTO workflow_dlq
+    DB --> S: OK
+
+    E -> S: PauseActiveStepsAndClearQueue()
+    S -> DB: UPDATE/DELETE (pause running steps, clear queue)
+    DB --> S: OK
+
+    E -> S: UpdateInstanceStatus(status=dlq)
+    S -> DB: UPDATE workflow_instances SET status='dlq'
+    DB --> S: OK
+end
+
+@enduml

@@ -77,6 +77,18 @@ func (engine *Engine) RegisterWorkflow(ctx context.Context, def *WorkflowDefinit
 	return engine.store.SaveWorkflowDefinition(ctx, def)
 }
 
+// RequeueFromDLQ extracts a record from the DLQ and re-enqueues its step.
+// If newInput is non-nil, it will be used as the step input before enqueueing.
+func (engine *Engine) RequeueFromDLQ(ctx context.Context, dlqID int64, newInput *json.RawMessage) error {
+	return engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		if err := engine.store.RequeueDeadLetter(ctx, dlqID, newInput); err != nil {
+			return fmt.Errorf("requeue dead letter: %w", err)
+		}
+
+		return nil
+	})
+}
+
 func (engine *Engine) Start(ctx context.Context, workflowID string, input json.RawMessage) (int64, error) {
 	var instanceID int64
 
@@ -152,6 +164,14 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 		instance, err := engine.store.GetInstance(ctx, item.InstanceID)
 		if err != nil {
 			return fmt.Errorf("get instance: %w", err)
+		}
+
+		// If workflow is in DLQ state, skip execution to prevent progress until operator intervention
+		if instance.Status == StatusDLQ {
+			_ = engine.store.LogEvent(ctx, instance.ID, nil, EventStepFailed, map[string]any{
+				KeyMessage: "instance in DLQ state, skipping queued item",
+			})
+			return nil
 		}
 
 		var step *WorkflowStep
@@ -430,6 +450,11 @@ func (engine *Engine) stopActiveSteps(ctx context.Context, instanceID int64) err
 }
 
 func (engine *Engine) executeStep(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
+	// If workflow is in DLQ state, do not execute any steps until operator requeues
+	if instance.Status == StatusDLQ {
+		return nil
+	}
+
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err != nil {
 		return fmt.Errorf("get workflow definition: %w", err)
@@ -1145,6 +1170,53 @@ func (engine *Engine) handleStepFailure(
 		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, stepDef.Delay)
 	}
 
+	// If DLQ mode is enabled, pause instead of failing and skip rollback
+	if def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID); defErr == nil && def.Definition.DLQEnabled {
+		// Mark step as paused with error
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusPaused, nil, &errMsg); err != nil {
+			return fmt.Errorf("update step (paused): %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName: step.StepName,
+			KeyError:    errMsg,
+			KeyReason:   "dlq",
+		})
+
+		// Notify join steps about failure in this branch
+		if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, false); err != nil {
+			return fmt.Errorf("notify join steps: %w", err)
+		}
+
+		// Create DLQ record
+		reason := "dlq enabled: rollback/compensation skipped"
+		rec := &DeadLetterRecord{
+			InstanceID: step.InstanceID,
+			WorkflowID: def.ID,
+			StepID:     step.ID,
+			StepName:   step.StepName,
+			StepType:   string(step.StepType),
+			Input:      step.Input,
+			Error:      &errMsg,
+			Reason:     reason,
+		}
+		if err := engine.store.CreateDeadLetterRecord(ctx, rec); err != nil {
+			return fmt.Errorf("create dead letter record: %w", err)
+		}
+
+		// Freeze execution: pause active running steps and clear the instance queue
+		if err := engine.store.PauseActiveStepsAndClearQueue(ctx, instance.ID); err != nil {
+			return fmt.Errorf("freeze instance for dlq: %w", err)
+		}
+
+		// Set workflow instance to DLQ state
+		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusDLQ, nil, &errMsg); err != nil {
+			return fmt.Errorf("update instance status to dlq: %w", err)
+		}
+
+		return nil
+	}
+
 	if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, nil, &errMsg); err != nil {
 		return fmt.Errorf("update step: %w", err)
 	}
@@ -1159,8 +1231,8 @@ func (engine *Engine) handleStepFailure(
 	}
 
 	// Try to rollback to save point before handling failure
-	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-	if err == nil {
+	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if defErr == nil {
 		if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
@@ -1277,17 +1349,26 @@ func (engine *Engine) notifyJoinSteps(
 					MaxRetries: 0,
 				}
 
-				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
-					return fmt.Errorf("create join step: %w", err)
+				// If the instance is in DLQ, create the join step as paused and do not enqueue it
+				if instance.Status == StatusDLQ {
+					joinStep.Status = StepStatusPaused
+					if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+						return fmt.Errorf("create join step: %w", err)
+					}
+					_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+						KeyJoinStep: stepName,
+					})
+				} else {
+					if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+						return fmt.Errorf("create join step: %w", err)
+					}
+					if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
+						return fmt.Errorf("enqueue join step: %w", err)
+					}
+					_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+						KeyJoinStep: stepName,
+					})
 				}
-
-				if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
-					return fmt.Errorf("enqueue join step: %w", err)
-				}
-
-				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
-					KeyJoinStep: stepName,
-				})
 			}
 		}
 	}
@@ -1302,7 +1383,7 @@ func (engine *Engine) hasUnfinishedSteps(ctx context.Context, instanceID int64) 
 	}
 
 	for _, step := range steps {
-		if step.Status == StepStatusPending || step.Status == StepStatusRunning {
+		if step.Status == StepStatusPending || step.Status == StepStatusRunning || step.Status == StepStatusPaused {
 			return true
 		}
 	}
@@ -1319,6 +1400,11 @@ func (engine *Engine) enqueueNextSteps(
 	instance, err := engine.store.GetInstance(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("get instance: %w", err)
+	}
+
+	// Do not enqueue new steps while the instance is in DLQ state
+	if instance.Status == StatusDLQ {
+		return nil
 	}
 
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
@@ -1633,11 +1719,27 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusFailed, step.Input, nil); err != nil {
 			return fmt.Errorf("update step status: %w", err)
 		}
+		reason := "compensation max retries exceeded"
 		_ = engine.store.LogEvent(ctx, step.InstanceID, &step.ID, EventStepFailed, map[string]any{
 			KeyStepName: step.StepName,
 			KeyStepType: step.StepType,
-			KeyError:    "compensation max retries exceeded",
+			KeyError:    reason,
 		})
+
+		// Send to Dead Letter Queue
+		rec := &DeadLetterRecord{
+			InstanceID: step.InstanceID,
+			WorkflowID: def.ID,
+			StepID:     step.ID,
+			StepName:   step.StepName,
+			StepType:   string(step.StepType),
+			Input:      step.Input,
+			Error:      step.Error,
+			Reason:     reason,
+		}
+		if err := engine.store.CreateDeadLetterRecord(ctx, rec); err != nil {
+			return fmt.Errorf("create dead letter record: %w", err)
+		}
 
 		return nil
 	}
