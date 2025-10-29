@@ -45,7 +45,7 @@ PlantUML diagrams of compensations flow: [DIAGRAMS](docs/SAGA_COMPENSATION_DIAGR
 
 Engine specification: [ENGINE](docs/ENGINE_SPEC.md)
 
-UI for visualizing workflows: [UI](https://github.com/rom8726/floxy-ui)
+Web UI for visualizing and managing workflows: [Web UI](https://github.com/rom8726/floxy-ui)
 
 ## Why Floxy?
 
