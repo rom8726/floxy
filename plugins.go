@@ -31,6 +31,7 @@ type Plugin interface {
 	OnStepStart(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error
 	OnStepComplete(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error
 	OnStepFailed(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep, err error) error
+	OnRollbackStepChain(ctx context.Context, instanceID int64, stepName string, depth int) error
 }
 
 // BasePlugin provides default no-op implementations
@@ -43,22 +44,33 @@ func NewBasePlugin(name string, priority PluginPriority) BasePlugin {
 	return BasePlugin{name: name, priority: priority}
 }
 
-func (p BasePlugin) Name() string             { return p.name }
+func (p BasePlugin) Name() string { return p.name }
+
 func (p BasePlugin) Priority() PluginPriority { return p.priority }
+
 func (p BasePlugin) OnWorkflowStart(context.Context, *WorkflowInstance) error {
 	return nil
 }
+
 func (p BasePlugin) OnWorkflowComplete(context.Context, *WorkflowInstance) error {
 	return nil
 }
+
 func (p BasePlugin) OnWorkflowFailed(context.Context, *WorkflowInstance) error {
 	return nil
 }
+
 func (p BasePlugin) OnStepStart(context.Context, *WorkflowInstance, *WorkflowStep) error { return nil }
+
 func (p BasePlugin) OnStepComplete(context.Context, *WorkflowInstance, *WorkflowStep) error {
 	return nil
 }
+
 func (p BasePlugin) OnStepFailed(context.Context, *WorkflowInstance, *WorkflowStep, error) error {
+	return nil
+}
+
+func (p BasePlugin) OnRollbackStepChain(context.Context, int64, string, int) error {
 	return nil
 }
 
@@ -157,6 +169,19 @@ func (pm *PluginManager) ExecuteStepFailed(ctx context.Context, instance *Workfl
 	for _, plugin := range pm.plugins {
 		if pluginErr := plugin.OnStepFailed(ctx, instance, step, err); pluginErr != nil {
 			slog.Error("[floxy] plugin error on step failed", "plugin", plugin.Name(), "error", err)
+		}
+	}
+
+	return nil
+}
+
+func (pm *PluginManager) ExecuteRollbackStepChain(ctx context.Context, instanceID int64, stepName string, depth int) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	for _, plugin := range pm.plugins {
+		if err := plugin.OnRollbackStepChain(ctx, instanceID, stepName, depth); err != nil {
+			slog.Error("[floxy] plugin error on rollback step chain", "plugin", plugin.Name(), "error", err)
 		}
 	}
 

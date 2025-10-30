@@ -600,7 +600,7 @@ func (engine *Engine) handleCancellation(
 		}
 
 		if lastCompletedStep != nil {
-			err := engine.rollbackStepChain(ctx, lastCompletedStep.StepName, rootStepName, def, stepMap, false)
+			err := engine.rollbackStepChain(ctx, instance.ID, lastCompletedStep.StepName, rootStepName, def, stepMap, false, 0)
 			if err != nil {
 				_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventWorkflowCancelled, map[string]any{
 					KeyRequestedBy: req.RequestedBy,
@@ -1616,16 +1616,25 @@ func (engine *Engine) rollbackStepsToSavePoint(
 		stepMap[failedStep.StepName] = failedStep
 	}
 
-	return engine.rollbackStepChain(ctx, failedStep.StepName, savePointName, def, stepMap, false)
+	return engine.rollbackStepChain(ctx, instanceID, failedStep.StepName, savePointName, def, stepMap, false, 0)
 }
 
 func (engine *Engine) rollbackStepChain(
 	ctx context.Context,
+	instanceID int64,
 	currentStep, savePointName string,
 	def *WorkflowDefinition,
 	stepMap map[string]*WorkflowStep,
 	isParallel bool,
+	depth int,
 ) error {
+	// PLUGIN HOOK: OnRollbackStepChain
+	if engine.pluginManager != nil {
+		if err := engine.pluginManager.ExecuteRollbackStepChain(ctx, instanceID, currentStep, depth); err != nil {
+			slog.Warn("[floxy] plugin hook OnRollbackStepChain failed", "error", err)
+		}
+	}
+
 	if currentStep == savePointName {
 		return nil // Reached save point
 	}
@@ -1639,7 +1648,7 @@ func (engine *Engine) rollbackStepChain(
 	// Handle parallel steps (fork branches)
 	if stepDef.Type == StepTypeFork || stepDef.Type == StepTypeParallel {
 		for _, parallelStepName := range stepDef.Parallel {
-			if err := engine.rollbackStepChain(ctx, parallelStepName, savePointName, def, stepMap, true); err != nil {
+			if err := engine.rollbackStepChain(ctx, instanceID, parallelStepName, savePointName, def, stepMap, true, depth+1); err != nil {
 				return err
 			}
 		}
@@ -1657,13 +1666,13 @@ func (engine *Engine) rollbackStepChain(
 				if executedBranch == "next" {
 					// Rollback the Next branch
 					for _, nextStepName := range stepDef.Next {
-						if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
+						if err := engine.rollbackStepChain(ctx, instanceID, nextStepName, savePointName, def, stepMap, true, depth+1); err != nil {
 							return err
 						}
 					}
 				} else if executedBranch == "else" && stepDef.Else != "" {
 					// Rollback the Else branch
-					if err := engine.rollbackStepChain(ctx, stepDef.Else, savePointName, def, stepMap, true); err != nil {
+					if err := engine.rollbackStepChain(ctx, instanceID, stepDef.Else, savePointName, def, stepMap, true, depth+1); err != nil {
 						return err
 					}
 				}
@@ -1672,7 +1681,7 @@ func (engine *Engine) rollbackStepChain(
 		} else {
 			// For non-condition steps, traverse all next steps
 			for _, nextStepName := range stepDef.Next {
-				if err := engine.rollbackStepChain(ctx, nextStepName, savePointName, def, stepMap, true); err != nil {
+				if err := engine.rollbackStepChain(ctx, instanceID, nextStepName, savePointName, def, stepMap, true, depth+1); err != nil {
 					return err
 				}
 			}
@@ -1681,7 +1690,7 @@ func (engine *Engine) rollbackStepChain(
 
 	// Continue with a previous step (traverse backwards)
 	if stepDef.Prev != "" && !isParallel {
-		if err := engine.rollbackStepChain(ctx, stepDef.Prev, savePointName, def, stepMap, isParallel); err != nil {
+		if err := engine.rollbackStepChain(ctx, instanceID, stepDef.Prev, savePointName, def, stepMap, isParallel, depth+1); err != nil {
 			return err
 		}
 	}
