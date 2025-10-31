@@ -1315,13 +1315,61 @@ func (engine *Engine) handleStepFailure(
 		KeyError:    errMsg,
 	})
 
+	// Check if this is a terminal step in a fork branch with Condition
+	// If so, replace virtual step with real step before notifying Join
+	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if defErr == nil {
+		// Check if we're in a Condition branch and need to replace virtual step
+		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		if conditionStepName != "" {
+			// Find Join step for this fork branch
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				virtualStep := fmt.Sprintf("cond#%s", conditionStepName)
+				// Replace virtual step with real terminal step (even though it failed)
+				if err := engine.store.ReplaceInJoinWaitFor(ctx, instance.ID, joinStepName, virtualStep, step.StepName); err != nil {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+						KeyStepName: step.StepName,
+						KeyError:    fmt.Sprintf("Failed to replace virtual step in join waitFor: %v", err),
+					})
+				} else {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+						KeyStepName: step.StepName,
+						KeyMessage:  fmt.Sprintf("Replaced virtual step %s with %s in join %s (failed)", virtualStep, step.StepName, joinStepName),
+					})
+					// After replacing virtual step with real step, notify Join about the failure
+					// This ensures Join is aware that the real step has failed
+					if err := engine.notifyJoinStepsForStep(ctx, instance.ID, joinStepName, step.StepName, false); err != nil {
+						_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+							KeyStepName: step.StepName,
+							KeyError:    fmt.Sprintf("Failed to notify join after virtual step replacement: %v", err),
+						})
+					}
+				}
+			}
+		}
+	}
+
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, false); err != nil {
 		return fmt.Errorf("notify join steps: %w", err)
 	}
 
 	// Try to rollback to save point before handling failure
-	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-	if defErr == nil {
+	// (def was already loaded above if we needed to replace virtual steps)
+	if def == nil {
+		var defErr error
+		def, defErr = engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if defErr == nil {
+			if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
+				// Log rollback error but continue with failure handling
+				_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+					KeyStepName: step.StepName,
+					KeyError:    fmt.Sprintf("rollback failed: %v", rollbackErr),
+				})
+			}
+		}
+	} else {
+		// def was loaded earlier, use it for rollback
 		if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
