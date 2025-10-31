@@ -1108,7 +1108,7 @@ func (engine *Engine) handleStepSuccess(
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err == nil {
 		// First, check if we're in a Condition branch and need to replace virtual step
-		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		conditionStepName := engine.findConditionStepInBranch(stepDef, def)
 		if conditionStepName != "" {
 			// Find Join step for this fork branch
 			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
@@ -1320,7 +1320,7 @@ func (engine *Engine) handleStepFailure(
 	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if defErr == nil {
 		// Check if we're in a Condition branch and need to replace virtual step
-		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		conditionStepName := engine.findConditionStepInBranch(stepDef, def)
 		if conditionStepName != "" {
 			// Find Join step for this fork branch
 			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
@@ -2359,7 +2359,6 @@ func (engine *Engine) findJoinStepForForkBranch(
 // It traverses backwards from stepName through Prev links to find the first Condition step.
 // Returns empty string if no Condition step is found.
 func (engine *Engine) findConditionStepInBranch(
-	stepName string,
 	stepDef *StepDefinition,
 	def *WorkflowDefinition,
 ) string {
