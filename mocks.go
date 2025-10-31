@@ -477,6 +477,75 @@ func (_c *MockPlugin_Name_Call) RunAndReturn(run func() string) *MockPlugin_Name
 	return _c
 }
 
+// OnRollbackStepChain provides a mock function for the type MockPlugin
+func (_mock *MockPlugin) OnRollbackStepChain(ctx context.Context, instanceID int64, stepName string, depth int) error {
+	ret := _mock.Called(ctx, instanceID, stepName, depth)
+
+	if len(ret) == 0 {
+		panic("no return value specified for OnRollbackStepChain")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, string, int) error); ok {
+		r0 = returnFunc(ctx, instanceID, stepName, depth)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPlugin_OnRollbackStepChain_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OnRollbackStepChain'
+type MockPlugin_OnRollbackStepChain_Call struct {
+	*mock.Call
+}
+
+// OnRollbackStepChain is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+//   - stepName string
+//   - depth int
+func (_e *MockPlugin_Expecter) OnRollbackStepChain(ctx interface{}, instanceID interface{}, stepName interface{}, depth interface{}) *MockPlugin_OnRollbackStepChain_Call {
+	return &MockPlugin_OnRollbackStepChain_Call{Call: _e.mock.On("OnRollbackStepChain", ctx, instanceID, stepName, depth)}
+}
+
+func (_c *MockPlugin_OnRollbackStepChain_Call) Run(run func(ctx context.Context, instanceID int64, stepName string, depth int)) *MockPlugin_OnRollbackStepChain_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPlugin_OnRollbackStepChain_Call) Return(err error) *MockPlugin_OnRollbackStepChain_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPlugin_OnRollbackStepChain_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, stepName string, depth int) error) *MockPlugin_OnRollbackStepChain_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // OnStepComplete provides a mock function for the type MockPlugin
 func (_mock *MockPlugin) OnStepComplete(ctx context.Context, instance *WorkflowInstance, step *WorkflowStep) error {
 	ret := _mock.Called(ctx, instance, step)
@@ -1428,6 +1497,75 @@ type MockStore_Expecter struct {
 
 func (_m *MockStore) EXPECT() *MockStore_Expecter {
 	return &MockStore_Expecter{mock: &_m.Mock}
+}
+
+// AddToJoinWaitFor provides a mock function for the type MockStore
+func (_mock *MockStore) AddToJoinWaitFor(ctx context.Context, instanceID int64, joinStepName string, stepToAdd string) error {
+	ret := _mock.Called(ctx, instanceID, joinStepName, stepToAdd)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddToJoinWaitFor")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, string, string) error); ok {
+		r0 = returnFunc(ctx, instanceID, joinStepName, stepToAdd)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_AddToJoinWaitFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddToJoinWaitFor'
+type MockStore_AddToJoinWaitFor_Call struct {
+	*mock.Call
+}
+
+// AddToJoinWaitFor is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+//   - joinStepName string
+//   - stepToAdd string
+func (_e *MockStore_Expecter) AddToJoinWaitFor(ctx interface{}, instanceID interface{}, joinStepName interface{}, stepToAdd interface{}) *MockStore_AddToJoinWaitFor_Call {
+	return &MockStore_AddToJoinWaitFor_Call{Call: _e.mock.On("AddToJoinWaitFor", ctx, instanceID, joinStepName, stepToAdd)}
+}
+
+func (_c *MockStore_AddToJoinWaitFor_Call) Run(run func(ctx context.Context, instanceID int64, joinStepName string, stepToAdd string)) *MockStore_AddToJoinWaitFor_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_AddToJoinWaitFor_Call) Return(err error) *MockStore_AddToJoinWaitFor_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_AddToJoinWaitFor_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, joinStepName string, stepToAdd string) error) *MockStore_AddToJoinWaitFor_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // CleanupOldWorkflows provides a mock function for the type MockStore
@@ -3538,6 +3676,81 @@ func (_c *MockStore_RemoveFromQueue_Call) Return(err error) *MockStore_RemoveFro
 }
 
 func (_c *MockStore_RemoveFromQueue_Call) RunAndReturn(run func(ctx context.Context, queueID int64) error) *MockStore_RemoveFromQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReplaceInJoinWaitFor provides a mock function for the type MockStore
+func (_mock *MockStore) ReplaceInJoinWaitFor(ctx context.Context, instanceID int64, joinStepName string, virtualStep string, realStep string) error {
+	ret := _mock.Called(ctx, instanceID, joinStepName, virtualStep, realStep)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplaceInJoinWaitFor")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, string, string, string) error); ok {
+		r0 = returnFunc(ctx, instanceID, joinStepName, virtualStep, realStep)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_ReplaceInJoinWaitFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplaceInJoinWaitFor'
+type MockStore_ReplaceInJoinWaitFor_Call struct {
+	*mock.Call
+}
+
+// ReplaceInJoinWaitFor is a helper method to define mock.On call
+//   - ctx context.Context
+//   - instanceID int64
+//   - joinStepName string
+//   - virtualStep string
+//   - realStep string
+func (_e *MockStore_Expecter) ReplaceInJoinWaitFor(ctx interface{}, instanceID interface{}, joinStepName interface{}, virtualStep interface{}, realStep interface{}) *MockStore_ReplaceInJoinWaitFor_Call {
+	return &MockStore_ReplaceInJoinWaitFor_Call{Call: _e.mock.On("ReplaceInJoinWaitFor", ctx, instanceID, joinStepName, virtualStep, realStep)}
+}
+
+func (_c *MockStore_ReplaceInJoinWaitFor_Call) Run(run func(ctx context.Context, instanceID int64, joinStepName string, virtualStep string, realStep string)) *MockStore_ReplaceInJoinWaitFor_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		var arg4 string
+		if args[4] != nil {
+			arg4 = args[4].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_ReplaceInJoinWaitFor_Call) Return(err error) *MockStore_ReplaceInJoinWaitFor_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_ReplaceInJoinWaitFor_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, joinStepName string, virtualStep string, realStep string) error) *MockStore_ReplaceInJoinWaitFor_Call {
 	_c.Call.Return(run)
 	return _c
 }

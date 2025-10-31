@@ -795,6 +795,166 @@ func TestIntegration_Condition_Logic(t *testing.T) {
 	})
 }
 
+func TestIntegration_ForkWithNestedConditions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	container, pool := setupTestDatabase(t)
+	t.Cleanup(func() {
+		pool.Close()
+		_ = container.Terminate(context.Background())
+	})
+
+	ctx := context.Background()
+	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	defer engine.Shutdown()
+
+	// Register handler
+	engine.RegisterHandler(&SimpleStepHandler{})
+
+	// Create workflow with Fork containing 3 branches, each with nested Conditions (2 levels)
+	// Branch 1: start -> condition1 (if value > 10) -> then: condition1_1 (if value > 20) -> terminal1_1 OR else: terminal1_2
+	// Branch 2: start -> condition2 (if value > 15) -> then: condition2_1 (if value > 25) -> terminal2_1 OR else: terminal2_2
+	// Branch 3: start -> condition3 (if value > 5) -> then: condition3_1 (if value > 12) -> terminal3_1 OR else: terminal3_2
+	workflowDef, err := NewBuilder("fork-nested-conditions", 1).
+		Fork("fork",
+			// Branch 1
+			func(branch *Builder) {
+				branch.Step("branch1_start", "simple-step", WithStepMaxRetries(1)).
+					Condition("branch1_condition1", "{{ gt .value 10 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch1_terminal1_2", "simple-step", WithStepMaxRetries(1))
+					}).
+					Condition("branch1_condition1_1", "{{ gt .value 20 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch1_terminal1_1_else", "simple-step", WithStepMaxRetries(1))
+					}).
+					Then("branch1_terminal1_1_then", "simple-step", WithStepMaxRetries(1))
+			},
+			// Branch 2
+			func(branch *Builder) {
+				branch.Step("branch2_start", "simple-step", WithStepMaxRetries(1)).
+					Condition("branch2_condition1", "{{ gt .value 15 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch2_terminal1_2", "simple-step", WithStepMaxRetries(1))
+					}).
+					Condition("branch2_condition1_1", "{{ gt .value 25 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch2_terminal1_1_else", "simple-step", WithStepMaxRetries(1))
+					}).
+					Then("branch2_terminal1_1_then", "simple-step", WithStepMaxRetries(1))
+			},
+			// Branch 3
+			func(branch *Builder) {
+				branch.Step("branch3_start", "simple-step", WithStepMaxRetries(1)).
+					Condition("branch3_condition1", "{{ gt .value 5 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch3_terminal1_2", "simple-step", WithStepMaxRetries(1))
+					}).
+					Condition("branch3_condition1_1", "{{ gt .value 12 }}", func(elseBranch *Builder) {
+						elseBranch.Step("branch3_terminal1_1_else", "simple-step", WithStepMaxRetries(1))
+					}).
+					Then("branch3_terminal1_1_then", "simple-step", WithStepMaxRetries(1))
+			},
+		).
+		Join("join", JoinStrategyAll).
+		Then("check", "simple-step", WithStepMaxRetries(1)).
+		Build()
+
+	require.NoError(t, err)
+
+	// Register workflow
+	err = engine.RegisterWorkflow(ctx, workflowDef)
+	require.NoError(t, err)
+
+	// Start workflow with input value that will trigger different condition paths
+	// value = 30: all conditions true, all then branches taken
+	input := json.RawMessage(`{"value": 30}`)
+	instanceID, err := engine.Start(ctx, "fork-nested-conditions-v1", input)
+	require.NoError(t, err)
+
+	// Process workflow until completion
+	maxIterations := 200
+	for i := 0; i < maxIterations; i++ {
+		empty, err := engine.ExecuteNext(ctx, "worker1")
+		require.NoError(t, err)
+		if empty {
+			// Check if workflow is completed
+			status, err := engine.GetStatus(ctx, instanceID)
+			require.NoError(t, err)
+			if status == StatusCompleted {
+				break
+			}
+			// Wait a bit before checking again
+			time.Sleep(50 * time.Millisecond)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Verify workflow completed
+	status, err := engine.GetStatus(ctx, instanceID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, status, "Workflow should be completed")
+
+	// Query database directly to check that check step completed last
+	const query = `
+		SELECT step_name, completed_at 
+		FROM workflows.workflow_steps 
+		WHERE instance_id = $1 AND status = 'completed' AND completed_at IS NOT NULL
+		ORDER BY completed_at DESC 
+		LIMIT 1`
+
+	var stepName string
+	var completedAt time.Time
+
+	err = pool.QueryRow(ctx, query, instanceID).Scan(&stepName, &completedAt)
+	require.NoError(t, err, "Should be able to query completed steps")
+
+	assert.Equal(t, "check", stepName, "The check step should have completed last")
+
+	// Verify that check step completed after all other steps
+	const countQuery = `
+		SELECT COUNT(*) 
+		FROM workflows.workflow_steps 
+		WHERE instance_id = $1 
+		  AND status = 'completed' 
+		  AND completed_at IS NOT NULL 
+		  AND completed_at > $2
+		  AND step_name != 'check'`
+
+	var countAfterCheck int
+	err = pool.QueryRow(ctx, countQuery, instanceID, completedAt).Scan(&countAfterCheck)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, countAfterCheck, "No steps should have completed after the check step")
+
+	// Additional verification: get all steps and verify check is last
+	steps, err := engine.GetSteps(ctx, instanceID)
+	require.NoError(t, err)
+
+	var checkStep *WorkflowStep
+	var allCompletedSteps []WorkflowStep
+
+	for i := range steps {
+		if steps[i].StepName == "check" {
+			checkStep = &steps[i]
+		}
+		if steps[i].Status == StepStatusCompleted && steps[i].CompletedAt != nil {
+			allCompletedSteps = append(allCompletedSteps, steps[i])
+		}
+	}
+
+	require.NotNil(t, checkStep, "Check step should exist")
+	require.NotNil(t, checkStep.CompletedAt, "Check step should have completed_at set")
+
+	// Verify check step completed after all other completed steps
+	for _, step := range allCompletedSteps {
+		if step.StepName != "check" && step.CompletedAt != nil {
+			assert.True(t,
+				checkStep.CompletedAt.After(*step.CompletedAt) || checkStep.CompletedAt.Equal(*step.CompletedAt),
+				"Check step should complete after or at the same time as step %s (check: %v, other: %v)",
+				step.StepName, checkStep.CompletedAt, step.CompletedAt,
+			)
+		}
+	}
+}
+
 // Handler implementations for integration tests
 
 type TestConditionHandler struct{}
@@ -1239,4 +1399,15 @@ func (h *CompensationHandler) Execute(ctx context.Context, stepCtx StepContext, 
 	}
 
 	return json.Marshal(result)
+}
+
+// SimpleStepHandler is a simple handler that just passes through the input
+type SimpleStepHandler struct{}
+
+func (h *SimpleStepHandler) Name() string { return "simple-step" }
+
+func (h *SimpleStepHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	// Add a small delay to ensure different completion times
+	time.Sleep(10 * time.Millisecond)
+	return input, nil
 }

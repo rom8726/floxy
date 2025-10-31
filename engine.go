@@ -1104,6 +1104,91 @@ func (engine *Engine) handleStepSuccess(
 		KeyStepName: step.StepName,
 	})
 
+	// Check if this is a terminal step in a fork branch
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err == nil {
+		// First, check if we're in a Condition branch and need to replace virtual step
+		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		if conditionStepName != "" {
+			// Find Join step for this fork branch
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				virtualStep := fmt.Sprintf("cond#%s", conditionStepName)
+				// Replace virtual step with real terminal step
+				if err := engine.store.ReplaceInJoinWaitFor(ctx, instance.ID, joinStepName, virtualStep, step.StepName); err != nil {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+						KeyStepName: step.StepName,
+						KeyError:    fmt.Sprintf("Failed to replace virtual step in join waitFor: %v", err),
+					})
+				} else {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+						KeyStepName: step.StepName,
+						KeyMessage:  fmt.Sprintf("Replaced virtual step %s with %s in join %s", virtualStep, step.StepName, joinStepName),
+					})
+					// After replacing virtual step with real step, notify Join about the completion
+					// This ensures Join is aware that the real step has completed
+					if err := engine.notifyJoinStepsForStep(ctx, instance.ID, joinStepName, step.StepName, true); err != nil {
+						_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+							KeyStepName: step.StepName,
+							KeyError:    fmt.Sprintf("Failed to notify join after virtual step replacement: %v", err),
+						})
+					}
+				}
+			}
+		} else if engine.isTerminalStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+			// Not in Condition branch, use dynamic detection
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				// Check if this step is not already in the WaitFor list
+				joinState, err := engine.store.GetJoinState(ctx, instance.ID, joinStepName)
+				if err == nil && joinState != nil {
+					isAlreadyWaiting := false
+					isVirtual := false
+					for _, waitFor := range joinState.WaitingFor {
+						if waitFor == step.StepName {
+							isAlreadyWaiting = true
+							break
+						}
+						// Check if this is a virtual step (shouldn't happen here, but just in case)
+						if len(waitFor) > 5 && waitFor[:5] == "cond#" {
+							isVirtual = true
+						}
+					}
+					if !isAlreadyWaiting && !isVirtual {
+						// Add this terminal step to the Join step's WaitFor list
+						if err := engine.store.AddToJoinWaitFor(ctx, instance.ID, joinStepName, step.StepName); err != nil {
+							// Log error but don't fail the step
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyError:    fmt.Sprintf("Failed to add step to join waitFor: %v", err),
+							})
+						} else {
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyMessage:  fmt.Sprintf("Added terminal step to join %s waitFor", joinStepName),
+							})
+						}
+					}
+				} else {
+					// JoinState doesn't exist yet, create it with this terminal step
+					joinStepDef, ok := def.Definition.Steps[joinStepName]
+					if ok {
+						strategy := joinStepDef.JoinStrategy
+						if strategy == "" {
+							strategy = JoinStrategyAll
+						}
+						if err := engine.store.CreateJoinState(ctx, instance.ID, joinStepName, []string{step.StepName}, strategy); err != nil {
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyError:    fmt.Sprintf("Failed to create join state: %v", err),
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, true); err != nil {
 		return fmt.Errorf("notify join steps: %w", err)
 	}
@@ -1116,9 +1201,13 @@ func (engine *Engine) handleStepSuccess(
 		return nil
 	}
 
-	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-	if err != nil {
-		return fmt.Errorf("get workflow definition: %w", err)
+	// Get workflow definition if we haven't already
+	if def == nil {
+		var err error
+		def, err = engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
 	}
 
 	if next {
@@ -1226,13 +1315,61 @@ func (engine *Engine) handleStepFailure(
 		KeyError:    errMsg,
 	})
 
+	// Check if this is a terminal step in a fork branch with Condition
+	// If so, replace virtual step with real step before notifying Join
+	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if defErr == nil {
+		// Check if we're in a Condition branch and need to replace virtual step
+		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		if conditionStepName != "" {
+			// Find Join step for this fork branch
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				virtualStep := fmt.Sprintf("cond#%s", conditionStepName)
+				// Replace virtual step with real terminal step (even though it failed)
+				if err := engine.store.ReplaceInJoinWaitFor(ctx, instance.ID, joinStepName, virtualStep, step.StepName); err != nil {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+						KeyStepName: step.StepName,
+						KeyError:    fmt.Sprintf("Failed to replace virtual step in join waitFor: %v", err),
+					})
+				} else {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+						KeyStepName: step.StepName,
+						KeyMessage:  fmt.Sprintf("Replaced virtual step %s with %s in join %s (failed)", virtualStep, step.StepName, joinStepName),
+					})
+					// After replacing virtual step with real step, notify Join about the failure
+					// This ensures Join is aware that the real step has failed
+					if err := engine.notifyJoinStepsForStep(ctx, instance.ID, joinStepName, step.StepName, false); err != nil {
+						_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+							KeyStepName: step.StepName,
+							KeyError:    fmt.Sprintf("Failed to notify join after virtual step replacement: %v", err),
+						})
+					}
+				}
+			}
+		}
+	}
+
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, false); err != nil {
 		return fmt.Errorf("notify join steps: %w", err)
 	}
 
 	// Try to rollback to save point before handling failure
-	def, defErr := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-	if defErr == nil {
+	// (def was already loaded above if we needed to replace virtual steps)
+	if def == nil {
+		var defErr error
+		def, defErr = engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if defErr == nil {
+			if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
+				// Log rollback error but continue with failure handling
+				_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
+					KeyStepName: step.StepName,
+					KeyError:    fmt.Sprintf("rollback failed: %v", rollbackErr),
+				})
+			}
+		}
+	} else {
+		// def was loaded earlier, use it for rollback
 		if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
@@ -1252,6 +1389,111 @@ func (engine *Engine) handleStepFailure(
 		if finalInstance != nil {
 			if errPlugin := engine.pluginManager.ExecuteWorkflowFailed(ctx, finalInstance); errPlugin != nil {
 				slog.Warn("[floxy] plugin hook OnWorkflowFailed failed", "error", errPlugin)
+			}
+		}
+	}
+
+	return nil
+}
+
+// notifyJoinStepsForStep notifies a specific Join step about a specific step completion.
+// This is used after replacing virtual steps to ensure Join is aware of real step completion.
+func (engine *Engine) notifyJoinStepsForStep(
+	ctx context.Context,
+	instanceID int64,
+	joinStepName, completedStepName string,
+	success bool,
+) error {
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	// Get Join step definition to check strategy
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return err
+	}
+
+	stepDef, ok := def.Definition.Steps[joinStepName]
+	if !ok || stepDef.Type != StepTypeJoin {
+		return fmt.Errorf("join step %s not found or not a join step", joinStepName)
+	}
+
+	// Update join state for this specific step
+	isReady, err := engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
+	if err != nil {
+		return fmt.Errorf("update join state for %s: %w", joinStepName, err)
+	}
+
+	// Additional check: don't consider join ready if there are still pending/running steps
+	if isReady {
+		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+		if hasPendingSteps {
+			isReady = false
+			_, _ = engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
+		}
+	}
+
+	_ = engine.store.LogEvent(ctx, instanceID, nil, EventJoinUpdated, map[string]any{
+		KeyJoinStep:      joinStepName,
+		KeyCompletedStep: completedStepName,
+		KeySuccess:       success,
+		KeyIsReady:       isReady,
+	})
+
+	if isReady {
+		joinStepExists := false
+		for _, s := range steps {
+			if s.StepName == joinStepName {
+				joinStepExists = true
+
+				break
+			}
+		}
+
+		if !joinStepExists {
+			var joinInput json.RawMessage
+			for _, s := range steps {
+				if s.StepName == completedStepName {
+					joinInput = s.Input
+
+					break
+				}
+			}
+
+			joinStep := &WorkflowStep{
+				InstanceID: instanceID,
+				StepName:   joinStepName,
+				StepType:   StepTypeJoin,
+				Status:     StepStatusPending,
+				Input:      joinInput,
+				MaxRetries: 0,
+			}
+
+			if instance.Status == StatusDLQ {
+				joinStep.Status = StepStatusPaused
+				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+					return fmt.Errorf("create join step: %w", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+					KeyJoinStep: joinStepName,
+				})
+			} else {
+				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+					return fmt.Errorf("create join step: %w", err)
+				}
+				if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
+					return fmt.Errorf("enqueue join step: %w", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+					KeyJoinStep: joinStepName,
+				})
 			}
 		}
 	}
@@ -1285,11 +1527,30 @@ func (engine *Engine) notifyJoinSteps(
 			continue
 		}
 
+		// Check if Join is waiting for this step by checking JoinState (which has actual waitFor after replacements)
+		// Also check stepDef.WaitFor for backwards compatibility and for virtual steps that haven't been replaced yet
 		waitingForThis := false
-		for _, waitFor := range stepDef.WaitFor {
-			if waitFor == completedStepName {
-				waitingForThis = true
-				break
+
+		// First check JoinState (actual state after virtual step replacements)
+		joinState, err := engine.store.GetJoinState(ctx, instanceID, stepName)
+		if err == nil && joinState != nil {
+			for _, waitFor := range joinState.WaitingFor {
+				if waitFor == completedStepName {
+					waitingForThis = true
+
+					break
+				}
+			}
+		}
+
+		// Also check stepDef.WaitFor for virtual steps and initial setup
+		if !waitingForThis {
+			for _, waitFor := range stepDef.WaitFor {
+				if waitFor == completedStepName {
+					waitingForThis = true
+
+					break
+				}
 			}
 		}
 
@@ -1948,4 +2209,182 @@ func (engine *Engine) isStepDescendantOf(stepName, ancestorStepName string, def 
 	}
 
 	return false
+}
+
+// isTerminalStepInForkBranch checks if a step is a terminal step in a fork branch.
+// A step is terminal if it has no Next steps, is not a Join step, and is in a fork branch.
+func (engine *Engine) isTerminalStepInForkBranch(
+	ctx context.Context,
+	instanceID int64,
+	stepName string,
+	def *WorkflowDefinition,
+) bool {
+	stepDef, ok := def.Definition.Steps[stepName]
+	if !ok {
+		return false
+	}
+
+	// Join steps are not terminal (they are the end of fork branches)
+	if stepDef.Type == StepTypeJoin {
+		return false
+	}
+
+	// A step is terminal if it has no Next steps
+	if len(stepDef.Next) > 0 {
+		return false
+	}
+
+	// Check if this step is actually in a fork branch by finding the fork step
+	forkStepName := engine.findForkStepForParallelStep(ctx, instanceID, stepName)
+	if forkStepName != "" {
+		return true
+	}
+
+	// Try to find fork by traversing backwards through Prev
+	visited := make(map[string]bool)
+	current := stepDef.Prev
+	for current != "" && current != rootStepName {
+		if visited[current] {
+			break
+		}
+		visited[current] = true
+
+		currentDef, ok := def.Definition.Steps[current]
+		if !ok {
+			break
+		}
+
+		if currentDef.Type == StepTypeFork {
+			return true
+		}
+
+		// Check if this step is in the Parallel array of a fork
+		for _, defStep := range def.Definition.Steps {
+			if defStep.Type == StepTypeFork {
+				for _, parallelStep := range defStep.Parallel {
+					if parallelStep == current {
+						return true
+					}
+				}
+			}
+		}
+
+		current = currentDef.Prev
+	}
+
+	return false
+}
+
+// findJoinStepForForkBranch finds the Join step that should wait for steps in the given fork branch.
+// It looks for a Join step that follows the fork step which created the branch containing stepName.
+func (engine *Engine) findJoinStepForForkBranch(
+	ctx context.Context,
+	instanceID int64,
+	stepName string,
+	def *WorkflowDefinition,
+) (string, error) {
+	// Find the fork step that created the branch containing this step
+	forkStepName := engine.findForkStepForParallelStep(ctx, instanceID, stepName)
+	if forkStepName == "" {
+		// Try to find fork by traversing backwards through Prev
+		stepDef, ok := def.Definition.Steps[stepName]
+		if !ok {
+			return "", nil
+		}
+
+		// Traverse backwards to find a fork step
+		visited := make(map[string]bool)
+		current := stepDef.Prev
+		for current != "" && current != rootStepName {
+			if visited[current] {
+				break
+			}
+			visited[current] = true
+
+			currentDef, ok := def.Definition.Steps[current]
+			if !ok {
+				break
+			}
+
+			if currentDef.Type == StepTypeFork {
+				forkStepName = current
+				break
+			}
+
+			// Check if this step is in the Parallel array of a fork
+			for name, defStep := range def.Definition.Steps {
+				if defStep.Type == StepTypeFork {
+					for _, parallelStep := range defStep.Parallel {
+						if parallelStep == current {
+							forkStepName = name
+							break
+						}
+					}
+					if forkStepName != "" {
+						break
+					}
+				}
+			}
+
+			if forkStepName != "" {
+				break
+			}
+
+			current = currentDef.Prev
+		}
+	}
+
+	if forkStepName == "" {
+		return "", nil // Not in a fork branch
+	}
+
+	// Find Join step that follows this fork step
+	forkStepDef, ok := def.Definition.Steps[forkStepName]
+	if !ok {
+		return "", nil
+	}
+
+	// Look for Join step in Next steps of the fork
+	for _, nextStepName := range forkStepDef.Next {
+		nextStepDef, ok := def.Definition.Steps[nextStepName]
+		if ok && nextStepDef.Type == StepTypeJoin {
+			return nextStepName, nil
+		}
+	}
+
+	return "", nil
+}
+
+// findConditionStepInBranch finds the Condition step in the branch that contains stepName.
+// It traverses backwards from stepName through Prev links to find the first Condition step.
+// Returns empty string if no Condition step is found.
+func (engine *Engine) findConditionStepInBranch(
+	stepName string,
+	stepDef *StepDefinition,
+	def *WorkflowDefinition,
+) string {
+	visited := make(map[string]bool)
+	current := stepDef.Prev
+
+	for current != "" && current != rootStepName {
+		if visited[current] {
+			break // Prevent cycles
+		}
+		visited[current] = true
+
+		currentDef, ok := def.Definition.Steps[current]
+		if !ok {
+			break
+		}
+
+		// Check if this is a Condition step
+		if currentDef.Type == StepTypeCondition {
+			return current
+		}
+
+		// Continue traversing backwards
+		current = currentDef.Prev
+	}
+
+	return ""
 }

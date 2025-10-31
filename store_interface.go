@@ -67,6 +67,8 @@ type Store interface {
 		success bool,
 	) (bool, error)
 	GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error)
+	AddToJoinWaitFor(ctx context.Context, instanceID int64, joinStepName, stepToAdd string) error
+	ReplaceInJoinWaitFor(ctx context.Context, instanceID int64, joinStepName, virtualStep, realStep string) error
 	GetSummaryStats(ctx context.Context) (*SummaryStats, error)
 	GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error)
 	GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error)

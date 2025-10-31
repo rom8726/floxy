@@ -44,7 +44,7 @@ func TestRollbackConditionActualFailureInParallelBranches(t *testing.T) {
 				}).
 				Then("branch2_next", "simple-test", WithStepMaxRetries(1))
 		}).
-		JoinStep("join", []string{"branch1_step1", "branch2_step1"}, JoinStrategyAll).
+		Join("join", JoinStrategyAll).
 		Then("final", "simple-test", WithStepMaxRetries(1)).
 		Build()
 
@@ -144,7 +144,7 @@ func TestRollbackConditionActualFailureInParallelBranchesWithFailure(t *testing.
 				}).
 				Then("branch2_next", "simple-test", WithStepMaxRetries(1))
 		}).
-		JoinStep("join", []string{"branch1_step1", "branch2_step1"}, JoinStrategyAll).
+		Join("join", JoinStrategyAll).
 		Then("final", "simple-test", WithStepMaxRetries(1)).
 		Build()
 

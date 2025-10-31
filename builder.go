@@ -3,7 +3,6 @@ package floxy
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -245,6 +244,9 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 	return builder
 }
 
+// JoinStep should be used without Condition. Use Join instead, which automatically handles
+// dynamic step detection in fork branches. JoinStep with an explicit waitFor list does not
+// account for dynamically created steps (e.g., Condition else branches).
 func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStrategy) *Builder {
 	if builder.err != nil {
 		return builder
@@ -286,6 +288,84 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 	return builder
 }
 
+func (builder *Builder) Join(name string, strategy JoinStrategy) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
+	if builder.currentStep == "" {
+		builder.err = fmt.Errorf("Join %q called with no step", name)
+
+		return builder
+	}
+
+	if name == "" {
+		builder.err = errors.New("Join called with no name")
+
+		return builder
+	}
+
+	if strategy == "" {
+		strategy = JoinStrategyAll
+	}
+
+	// Find the fork/parallel step before this join
+	prevStep, ok := builder.steps[builder.currentStep]
+	if !ok {
+		builder.err = fmt.Errorf("previous step %q not found", builder.currentStep)
+
+		return builder
+	}
+
+	var waitFor []string
+
+	// Check if previous step is a Fork or Parallel
+	if prevStep.Type == StepTypeFork || prevStep.Type == StepTypeParallel {
+		// For each branch, check if there's a Condition step
+		for _, branchStartStep := range prevStep.Parallel {
+			// Traverse the branch to find the first Condition step
+			conditionStepName := builder.findFirstConditionInBranch(branchStartStep)
+			if conditionStepName != "" {
+				// Add a virtual step for this condition
+				virtualStep := fmt.Sprintf("cond#%s", conditionStepName)
+				waitFor = append(waitFor, virtualStep)
+			} else {
+				// No condition, use the branch start step (or find terminal step)
+				// For now, we'll use the branch start step, but the engine will handle
+				// dynamic detection of terminal steps
+				terminalStep := builder.findTerminalStepInBranch(branchStartStep)
+				if terminalStep != "" {
+					waitFor = append(waitFor, terminalStep)
+				} else {
+					waitFor = append(waitFor, branchStartStep)
+				}
+			}
+		}
+	} else {
+		// Not a fork/parallel, use current step
+		waitFor = []string{builder.currentStep}
+	}
+
+	step := &StepDefinition{
+		Name:         name,
+		Type:         StepTypeJoin,
+		WaitFor:      waitFor,
+		JoinStrategy: strategy,
+		Prev:         builder.currentStep,
+		Metadata:     make(map[string]any),
+	}
+
+	builder.steps[name] = step
+
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
+
+	builder.currentStep = name
+
+	return builder
+}
+
 func (builder *Builder) ForkJoin(
 	forkName string,
 	branches []func(branch *Builder),
@@ -297,10 +377,8 @@ func (builder *Builder) ForkJoin(
 	}
 
 	_ = builder.Fork(forkName, branches...)
-	forkStep := builder.steps[forkName]
-	waitFor := slices.Clone(forkStep.Parallel)
 
-	return builder.JoinStep(joinName, waitFor, joinStrategy)
+	return builder.Join(joinName, joinStrategy)
 }
 
 func (builder *Builder) SavePoint(name string) *Builder {
@@ -506,9 +584,27 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 		}
 
 		for _, parallelStep := range stepDef.Parallel {
+			// Skip validation for virtual steps (cond#...)
+			if isVirtualStep(parallelStep) {
+				continue
+			}
 			if _, ok := def.Definition.Steps[parallelStep]; !ok {
 				return fmt.Errorf("builder %q: step %q references unknown parallel step: %q",
 					builder.name, stepName, parallelStep)
+			}
+		}
+
+		// Validate WaitFor for Join steps, but skip virtual steps
+		if stepDef.Type == StepTypeJoin {
+			for _, waitForStep := range stepDef.WaitFor {
+				// Skip validation for virtual steps (cond#...)
+				if isVirtualStep(waitForStep) {
+					continue
+				}
+				if _, ok := def.Definition.Steps[waitForStep]; !ok {
+					return fmt.Errorf("builder %q: join step %q references unknown step in waitFor: %q",
+						builder.name, stepName, waitForStep)
+				}
 			}
 		}
 
@@ -557,6 +653,10 @@ func (builder *Builder) detectCycles(
 		if next == "" {
 			continue
 		}
+		// Skip virtual steps in cycle detection
+		if isVirtualStep(next) {
+			continue
+		}
 		if _, exists := steps[next]; !exists {
 			continue
 		}
@@ -600,6 +700,115 @@ func validateStepName(name string) error {
 	if name == rootStepName {
 		return errors.New("step name cannot be _root_")
 	}
+	if isVirtualStep(name) {
+		return errors.New("step name cannot start with 'cond#'")
+	}
 
 	return nil
+}
+
+// isVirtualStep checks if a step name is a virtual step (starts with "cond#").
+// Virtual steps are placeholders for Condition steps that will be replaced
+// with actual terminal steps during workflow execution.
+func isVirtualStep(stepName string) bool {
+	return len(stepName) > 5 && stepName[:5] == "cond#"
+}
+
+// findFirstConditionInBranch traverses a branch starting from startStepName
+// and returns the first Condition step found, or empty string if none found.
+func (builder *Builder) findFirstConditionInBranch(startStepName string) string {
+	visited := make(map[string]bool)
+
+	return builder.traverseBranchForCondition(startStepName, visited)
+}
+
+// traverseBranchForCondition is a helper that traverses the branch looking for a Condition step.
+func (builder *Builder) traverseBranchForCondition(stepName string, visited map[string]bool) string {
+	if stepName == "" {
+		return ""
+	}
+
+	if visited[stepName] {
+		return "" // Already visited, prevent cycles
+	}
+	visited[stepName] = true
+
+	stepDef, ok := builder.steps[stepName]
+	if !ok {
+		return ""
+	}
+
+	// Check if this is a Condition step
+	if stepDef.Type == StepTypeCondition {
+		return stepName
+	}
+
+	// Traverse Next steps
+	for _, nextStep := range stepDef.Next {
+		if result := builder.traverseBranchForCondition(nextStep, visited); result != "" {
+			return result
+		}
+	}
+
+	// Also check Else branch if exists
+	//if stepDef.Else != "" {
+	//	if result := builder.traverseBranchForCondition(stepDef.Else, visited); result != "" {
+	//		return result
+	//	}
+	//}
+
+	return ""
+}
+
+// findTerminalStepInBranch finds the terminal step (no Next steps) in a branch.
+// Returns the last step that has no Next steps.
+func (builder *Builder) findTerminalStepInBranch(startStepName string) string {
+	visited := make(map[string]bool)
+	terminalSteps := builder.traverseBranchForTerminal(startStepName, visited)
+
+	// Return the first terminal step found (or the start step if no terminal found)
+	if len(terminalSteps) > 0 {
+		return terminalSteps[0]
+	}
+
+	// If no terminal step found, return the start step
+	return startStepName
+}
+
+// traverseBranchForTerminal traverses the branch and collects terminal steps.
+func (builder *Builder) traverseBranchForTerminal(stepName string, visited map[string]bool) []string {
+	if stepName == "" {
+		return nil
+	}
+
+	if visited[stepName] {
+		return nil // Already visited, prevent cycles
+	}
+	visited[stepName] = true
+
+	stepDef, ok := builder.steps[stepName]
+	if !ok {
+		return nil
+	}
+
+	// If this step has no Next steps, it's a terminal step
+	if len(stepDef.Next) == 0 {
+		return []string{stepName}
+	}
+
+	var terminalSteps []string
+
+	// Traverse Next steps
+	for _, nextStep := range stepDef.Next {
+		terminals := builder.traverseBranchForTerminal(nextStep, visited)
+		terminalSteps = append(terminalSteps, terminals...)
+	}
+
+	// Also check Else branch if exists
+	if stepDef.Else != "" {
+		terminals := builder.traverseBranchForTerminal(stepDef.Else, visited)
+		terminalSteps = append(terminalSteps, terminals...)
+	}
+
+	return terminalSteps
 }

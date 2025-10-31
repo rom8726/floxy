@@ -361,10 +361,43 @@ FOR UPDATE`
 	_ = json.Unmarshal(completedJSON, &completed)
 	_ = json.Unmarshal(failedJSON, &failed)
 
+	// Check if step is already in completed or failed lists to avoid duplicates
 	if success {
-		completed = append(completed, completedStep)
+		alreadyInCompleted := false
+		for _, c := range completed {
+			if c == completedStep {
+				alreadyInCompleted = true
+				break
+			}
+		}
+		if !alreadyInCompleted {
+			completed = append(completed, completedStep)
+		}
+		// Remove from failed if it was there (shouldn't happen, but just in case)
+		for i, f := range failed {
+			if f == completedStep {
+				failed = append(failed[:i], failed[i+1:]...)
+				break
+			}
+		}
 	} else {
-		failed = append(failed, completedStep)
+		alreadyInFailed := false
+		for _, f := range failed {
+			if f == completedStep {
+				alreadyInFailed = true
+				break
+			}
+		}
+		if !alreadyInFailed {
+			failed = append(failed, completedStep)
+		}
+		// Remove from completed if it was there (shouldn't happen, but just in case)
+		for i, c := range completed {
+			if c == completedStep {
+				completed = append(completed[:i], completed[i+1:]...)
+				break
+			}
+		}
 	}
 
 	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
@@ -422,6 +455,170 @@ WHERE instance_id = $1 AND join_step_name = $2`
 	_ = json.Unmarshal(failedJSON, &state.Failed)
 
 	return &state, nil
+}
+
+func (store *StoreImpl) AddToJoinWaitFor(
+	ctx context.Context,
+	instanceID int64,
+	joinStepName, stepToAdd string,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT waiting_for, completed, failed, join_strategy
+FROM workflows.workflow_join_state
+WHERE instance_id = $1 AND join_step_name = $2
+FOR UPDATE`
+
+	var waitingForJSON, completedJSON, failedJSON []byte
+	var strategy JoinStrategy
+
+	err := executor.QueryRow(ctx, query, instanceID, joinStepName).Scan(
+		&waitingForJSON, &completedJSON, &failedJSON, &strategy,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// JoinState doesn't exist yet, create it with the step to add
+			return store.CreateJoinState(ctx, instanceID, joinStepName, []string{stepToAdd}, JoinStrategyAll)
+		}
+		return err
+	}
+
+	var waitingFor, completed, failed []string
+	_ = json.Unmarshal(waitingForJSON, &waitingFor)
+	_ = json.Unmarshal(completedJSON, &completed)
+	_ = json.Unmarshal(failedJSON, &failed)
+
+	// Check if step is already in waitingFor list
+	for _, w := range waitingFor {
+		if w == stepToAdd {
+			return nil // Already in the list, nothing to do
+		}
+	}
+
+	// Add step to waitingFor list
+	waitingFor = append(waitingFor, stepToAdd)
+
+	// Recalculate isReady based on updated waitingFor
+	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+
+	const updateQuery = `
+UPDATE workflows.workflow_join_state
+SET waiting_for = $1, is_ready = $2, updated_at = $3
+WHERE instance_id = $4 AND join_step_name = $5`
+
+	waitingForJSON, _ = json.Marshal(waitingFor)
+
+	_, err = executor.Exec(ctx, updateQuery,
+		waitingForJSON, isReady, time.Now(), instanceID, joinStepName,
+	)
+
+	return err
+}
+
+func (store *StoreImpl) ReplaceInJoinWaitFor(
+	ctx context.Context,
+	instanceID int64,
+	joinStepName, virtualStep, realStep string,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT waiting_for, completed, failed, join_strategy
+FROM workflows.workflow_join_state
+WHERE instance_id = $1 AND join_step_name = $2
+FOR UPDATE`
+
+	var waitingForJSON, completedJSON, failedJSON []byte
+	var strategy JoinStrategy
+
+	err := executor.QueryRow(ctx, query, instanceID, joinStepName).Scan(
+		&waitingForJSON, &completedJSON, &failedJSON, &strategy,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// JoinState doesn't exist yet, create it with the real step
+			return store.CreateJoinState(ctx, instanceID, joinStepName, []string{realStep}, JoinStrategyAll)
+		}
+		return err
+	}
+
+	var waitingFor, completed, failed []string
+	_ = json.Unmarshal(waitingForJSON, &waitingFor)
+	_ = json.Unmarshal(completedJSON, &completed)
+	_ = json.Unmarshal(failedJSON, &failed)
+
+	// Replace virtual step with real step in waitingFor list
+	found := false
+	for i, w := range waitingFor {
+		if w == virtualStep {
+			waitingFor[i] = realStep
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		// Virtual step not found, just add the real step
+		waitingFor = append(waitingFor, realStep)
+	}
+
+	// Check if real step already exists and what its status is
+	// If it's already completed or failed, add it to the appropriate list
+	const checkStepQuery = `
+SELECT status
+FROM workflows.workflow_steps
+WHERE instance_id = $1 AND step_name = $2
+ORDER BY created_at DESC
+LIMIT 1`
+
+	var stepStatus StepStatus
+	err = executor.QueryRow(ctx, checkStepQuery, instanceID, realStep).Scan(&stepStatus)
+	if err == nil {
+		// Step exists, check if it's already in completed or failed lists
+		isInCompleted := false
+		isInFailed := false
+		for _, c := range completed {
+			if c == realStep {
+				isInCompleted = true
+				break
+			}
+		}
+		for _, f := range failed {
+			if f == realStep {
+				isInFailed = true
+				break
+			}
+		}
+
+		// If step is completed or failed/rolled_back, add it to appropriate list
+		if !isInCompleted && !isInFailed {
+			if stepStatus == StepStatusCompleted {
+				completed = append(completed, realStep)
+			} else if stepStatus == StepStatusFailed || stepStatus == StepStatusRolledBack {
+				// RolledBack also means the step failed, so add to failed list
+				failed = append(failed, realStep)
+			}
+		}
+	}
+
+	// Recalculate isReady based on updated waitingFor, completed, and failed
+	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+
+	const updateQuery = `
+UPDATE workflows.workflow_join_state
+SET waiting_for = $1, completed = $2, failed = $3, is_ready = $4, updated_at = $5
+WHERE instance_id = $6 AND join_step_name = $7`
+
+	waitingForJSON, _ = json.Marshal(waitingFor)
+	completedJSON, _ = json.Marshal(completed)
+	failedJSON, _ = json.Marshal(failed)
+
+	_, err = executor.Exec(ctx, updateQuery,
+		waitingForJSON, completedJSON, failedJSON, isReady, time.Now(), instanceID, joinStepName,
+	)
+
+	return err
 }
 
 func (store *StoreImpl) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {

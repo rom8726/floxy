@@ -397,7 +397,7 @@ func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
 					Then("branch3-step2", "simple-test", WithStepMaxRetries(1))
 			},
 		).
-		JoinStep("join", []string{"branch1-step2", "branch2-step2", "branch3-step2"}, JoinStrategyAll).
+		Join("join", JoinStrategyAll).
 		Then("final", "simple-test", WithStepMaxRetries(1)).
 		Build()
 
