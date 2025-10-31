@@ -1105,23 +1105,48 @@ func (engine *Engine) handleStepSuccess(
 	})
 
 	// Check if this is a terminal step in a fork branch
-	// If so, dynamically add it to the Join step's WaitFor list
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err == nil {
-		if engine.isTerminalStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+		// First, check if we're in a Condition branch and need to replace virtual step
+		conditionStepName := engine.findConditionStepInBranch(step.StepName, stepDef, def)
+		if conditionStepName != "" {
+			// Find Join step for this fork branch
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				virtualStep := fmt.Sprintf("cond#%s", conditionStepName)
+				// Replace virtual step with real terminal step
+				if err := engine.store.ReplaceInJoinWaitFor(ctx, instance.ID, joinStepName, virtualStep, step.StepName); err != nil {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+						KeyStepName: step.StepName,
+						KeyError:    fmt.Sprintf("Failed to replace virtual step in join waitFor: %v", err),
+					})
+				} else {
+					_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+						KeyStepName: step.StepName,
+						KeyMessage:  fmt.Sprintf("Replaced virtual step %s with %s in join %s", virtualStep, step.StepName, joinStepName),
+					})
+				}
+			}
+		} else if engine.isTerminalStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+			// Not in Condition branch, use dynamic detection
 			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
 			if err == nil && joinStepName != "" {
 				// Check if this step is not already in the WaitFor list
 				joinState, err := engine.store.GetJoinState(ctx, instance.ID, joinStepName)
 				if err == nil && joinState != nil {
 					isAlreadyWaiting := false
+					isVirtual := false
 					for _, waitFor := range joinState.WaitingFor {
 						if waitFor == step.StepName {
 							isAlreadyWaiting = true
 							break
 						}
+						// Check if this is a virtual step (shouldn't happen here, but just in case)
+						if len(waitFor) > 5 && waitFor[:5] == "cond#" {
+							isVirtual = true
+						}
 					}
-					if !isAlreadyWaiting {
+					if !isAlreadyWaiting && !isVirtual {
 						// Add this terminal step to the Join step's WaitFor list
 						if err := engine.store.AddToJoinWaitFor(ctx, instance.ID, joinStepName, step.StepName); err != nil {
 							// Log error but don't fail the step
@@ -2148,4 +2173,38 @@ func (engine *Engine) findJoinStepForForkBranch(
 	}
 
 	return "", nil
+}
+
+// findConditionStepInBranch finds the Condition step in the branch that contains stepName.
+// It traverses backwards from stepName through Prev links to find the first Condition step.
+// Returns empty string if no Condition step is found.
+func (engine *Engine) findConditionStepInBranch(
+	stepName string,
+	stepDef *StepDefinition,
+	def *WorkflowDefinition,
+) string {
+	visited := make(map[string]bool)
+	current := stepDef.Prev
+
+	for current != "" && current != rootStepName {
+		if visited[current] {
+			break // Prevent cycles
+		}
+		visited[current] = true
+
+		currentDef, ok := def.Definition.Steps[current]
+		if !ok {
+			break
+		}
+
+		// Check if this is a Condition step
+		if currentDef.Type == StepTypeCondition {
+			return current
+		}
+
+		// Continue traversing backwards
+		current = currentDef.Prev
+	}
+
+	return ""
 }

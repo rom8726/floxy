@@ -483,6 +483,70 @@ WHERE instance_id = $4 AND join_step_name = $5`
 	return err
 }
 
+func (store *StoreImpl) ReplaceInJoinWaitFor(
+	ctx context.Context,
+	instanceID int64,
+	joinStepName, virtualStep, realStep string,
+) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `
+SELECT waiting_for, completed, failed, join_strategy
+FROM workflows.workflow_join_state
+WHERE instance_id = $1 AND join_step_name = $2
+FOR UPDATE`
+
+	var waitingForJSON, completedJSON, failedJSON []byte
+	var strategy JoinStrategy
+
+	err := executor.QueryRow(ctx, query, instanceID, joinStepName).Scan(
+		&waitingForJSON, &completedJSON, &failedJSON, &strategy,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// JoinState doesn't exist yet, create it with the real step
+			return store.CreateJoinState(ctx, instanceID, joinStepName, []string{realStep}, JoinStrategyAll)
+		}
+		return err
+	}
+
+	var waitingFor, completed, failed []string
+	_ = json.Unmarshal(waitingForJSON, &waitingFor)
+	_ = json.Unmarshal(completedJSON, &completed)
+	_ = json.Unmarshal(failedJSON, &failed)
+
+	// Replace virtual step with real step in waitingFor list
+	found := false
+	for i, w := range waitingFor {
+		if w == virtualStep {
+			waitingFor[i] = realStep
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		// Virtual step not found, just add the real step
+		waitingFor = append(waitingFor, realStep)
+	}
+
+	// Recalculate isReady based on updated waitingFor
+	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+
+	const updateQuery = `
+UPDATE workflows.workflow_join_state
+SET waiting_for = $1, is_ready = $2, updated_at = $3
+WHERE instance_id = $4 AND join_step_name = $5`
+
+	waitingForJSON, _ = json.Marshal(waitingFor)
+
+	_, err = executor.Exec(ctx, updateQuery,
+		waitingForJSON, isReady, time.Now(), instanceID, joinStepName,
+	)
+
+	return err
+}
+
 func (store *StoreImpl) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
 	if strategy == JoinStrategyAny {
 		return len(completed) > 0 || len(failed) > 0
