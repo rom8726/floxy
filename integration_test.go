@@ -16,6 +16,8 @@ import (
 )
 
 func setupTestDatabase(t *testing.T) (testcontainers.Container, *pgxpool.Pool) {
+	t.Helper()
+
 	ctx := context.Background()
 
 	// Start PostgreSQL container

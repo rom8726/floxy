@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -327,29 +326,46 @@ func (h *CompensationHandler) Execute(ctx context.Context, stepCtx floxy.StepCon
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	pool, err := pgxpool.New(context.Background(), "postgres://floxy:password@localhost:5435/floxy?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to create connection pool: %v", err)
 	}
 	defer pool.Close()
 
-	engine := floxy.NewEngine(pool)
-	defer engine.Shutdown()
-
-	// Run migrations
+	// Run migrations once
 	if err := floxy.RunMigrations(ctx, pool); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	engine.RegisterHandler(&UserServiceHandler{})
-	engine.RegisterHandler(&PaymentServiceHandler{})
-	engine.RegisterHandler(&InventoryServiceHandler{})
-	engine.RegisterHandler(&NotificationServiceHandler{})
-	engine.RegisterHandler(&AnalyticsServiceHandler{})
-	engine.RegisterHandler(&AuditServiceHandler{})
-	engine.RegisterHandler(&CompensationHandler{})
+	// Define microservices, each with its own Engine and only its own handler registered
+	type serviceSpec struct {
+		name    string
+		handler floxy.StepHandler
+	}
 
+	services := []serviceSpec{
+		{"user", &UserServiceHandler{}},
+		{"payment", &PaymentServiceHandler{}},
+		{"inventory", &InventoryServiceHandler{}},
+		{"notification", &NotificationServiceHandler{}},
+		{"analytics", &AnalyticsServiceHandler{}},
+		{"audit", &AuditServiceHandler{}},
+		// Compensation handler is special and used only on failures; register it on a dedicated service
+		{"compensation", &CompensationHandler{}},
+	}
+
+	// Create an Engine per service and register only its own handler
+	engines := make(map[string]*floxy.Engine)
+	for _, s := range services {
+		engine := floxy.NewEngine(pool)
+		engine.RegisterHandler(s.handler)
+		engines[s.name] = engine
+	}
+
+	// Register a workflow definition once (on any engine)
 	workflowDef, err := floxy.NewBuilder("microservices-orchestration", 1).
 		Step("validate-user", "user-service", floxy.WithStepMaxRetries(3)).
 		OnFailure("compensate-user-validation", "compensation",
@@ -357,7 +373,8 @@ func main() {
 			floxy.WithStepMetadata(map[string]any{
 				"action": "user_validation_failed",
 				"reason": "user_validation_error",
-			})).
+			}),
+		).
 		Fork("process-payment-and-inventory",
 			func(branch *floxy.Builder) {
 				branch.Step("process-payment", "payment-service", floxy.WithStepMaxRetries(3))
@@ -377,22 +394,41 @@ func main() {
 		).
 		JoinStep("finalize-order", []string{"track-event", "audit-action"}, floxy.JoinStrategyAll).
 		Build()
-
 	if err != nil {
 		log.Fatalf("Failed to build workflow: %v", err)
 	}
-
-	if err := engine.RegisterWorkflow(context.Background(), workflowDef); err != nil {
+	if err := engines["user"].RegisterWorkflow(ctx, workflowDef); err != nil {
 		log.Fatalf("Failed to register workflow: %v", err)
 	}
 
-	workerPool := floxy.NewWorkerPool(engine, 8, 100*time.Millisecond)
+	// Launch a worker loop per service (microservice) in its own goroutine
+	for name, eng := range engines {
+		name := name
+		eng := eng
+		go func() {
+			workerID := fmt.Sprintf("svc-%s", name)
+			log.Printf("Service %s worker started", name)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					empty, err := eng.ExecuteNext(ctx, workerID)
+					if err != nil {
+						log.Printf("Service %s ExecuteNext error: %v", name, err)
+						// small pause to avoid hot loop on errors
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+					if empty {
+						time.Sleep(100 * time.Millisecond)
+					}
+				}
+			}
+		}()
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	workerPool.Start(ctx)
-
+	// Seed some orders from a coordinator context
 	orders := []map[string]any{
 		{
 			"user_id": "user_001",
@@ -430,7 +466,7 @@ func main() {
 
 	for i, order := range orders {
 		orderJSON, _ := json.Marshal(order)
-		instanceID, err := engine.Start(context.Background(), "microservices-orchestration-v1", orderJSON)
+		instanceID, err := engines["user"].Start(ctx, "microservices-orchestration-v1", orderJSON)
 		if err != nil {
 			log.Printf("Failed to start workflow %d: %v", i+1, err)
 		} else {
@@ -438,12 +474,11 @@ func main() {
 		}
 	}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	<-sigCh
-	log.Println("Shutting down...")
-
-	workerPool.Stop()
-	cancel()
+	// Wait until signal, then shutdown all engines gracefully
+	<-ctx.Done()
+	log.Println("Shutting down services...")
+	for name, eng := range engines {
+		log.Printf("Stopping service %s", name)
+		eng.Shutdown()
+	}
 }

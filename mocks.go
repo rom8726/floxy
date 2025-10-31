@@ -3623,6 +3623,63 @@ func (_c *MockStore_PauseActiveStepsAndClearQueue_Call) RunAndReturn(run func(ct
 	return _c
 }
 
+// ReleaseQueueItem provides a mock function for the type MockStore
+func (_mock *MockStore) ReleaseQueueItem(ctx context.Context, queueID int64) error {
+	ret := _mock.Called(ctx, queueID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReleaseQueueItem")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64) error); ok {
+		r0 = returnFunc(ctx, queueID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_ReleaseQueueItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseQueueItem'
+type MockStore_ReleaseQueueItem_Call struct {
+	*mock.Call
+}
+
+// ReleaseQueueItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - queueID int64
+func (_e *MockStore_Expecter) ReleaseQueueItem(ctx interface{}, queueID interface{}) *MockStore_ReleaseQueueItem_Call {
+	return &MockStore_ReleaseQueueItem_Call{Call: _e.mock.On("ReleaseQueueItem", ctx, queueID)}
+}
+
+func (_c *MockStore_ReleaseQueueItem_Call) Run(run func(ctx context.Context, queueID int64)) *MockStore_ReleaseQueueItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_ReleaseQueueItem_Call) Return(err error) *MockStore_ReleaseQueueItem_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_ReleaseQueueItem_Call) RunAndReturn(run func(ctx context.Context, queueID int64) error) *MockStore_ReleaseQueueItem_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RemoveFromQueue provides a mock function for the type MockStore
 func (_mock *MockStore) RemoveFromQueue(ctx context.Context, queueID int64) error {
 	ret := _mock.Called(ctx, queueID)
@@ -3814,6 +3871,69 @@ func (_c *MockStore_RequeueDeadLetter_Call) Return(err error) *MockStore_Requeue
 }
 
 func (_c *MockStore_RequeueDeadLetter_Call) RunAndReturn(run func(ctx context.Context, dlqID int64, newInput *json.RawMessage) error) *MockStore_RequeueDeadLetter_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RescheduleAndReleaseQueueItem provides a mock function for the type MockStore
+func (_mock *MockStore) RescheduleAndReleaseQueueItem(ctx context.Context, queueID int64, delay time.Duration) error {
+	ret := _mock.Called(ctx, queueID, delay)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RescheduleAndReleaseQueueItem")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, time.Duration) error); ok {
+		r0 = returnFunc(ctx, queueID, delay)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockStore_RescheduleAndReleaseQueueItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RescheduleAndReleaseQueueItem'
+type MockStore_RescheduleAndReleaseQueueItem_Call struct {
+	*mock.Call
+}
+
+// RescheduleAndReleaseQueueItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - queueID int64
+//   - delay time.Duration
+func (_e *MockStore_Expecter) RescheduleAndReleaseQueueItem(ctx interface{}, queueID interface{}, delay interface{}) *MockStore_RescheduleAndReleaseQueueItem_Call {
+	return &MockStore_RescheduleAndReleaseQueueItem_Call{Call: _e.mock.On("RescheduleAndReleaseQueueItem", ctx, queueID, delay)}
+}
+
+func (_c *MockStore_RescheduleAndReleaseQueueItem_Call) Run(run func(ctx context.Context, queueID int64, delay time.Duration)) *MockStore_RescheduleAndReleaseQueueItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 time.Duration
+		if args[2] != nil {
+			arg2 = args[2].(time.Duration)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_RescheduleAndReleaseQueueItem_Call) Return(err error) *MockStore_RescheduleAndReleaseQueueItem_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockStore_RescheduleAndReleaseQueueItem_Call) RunAndReturn(run func(ctx context.Context, queueID int64, delay time.Duration) error) *MockStore_RescheduleAndReleaseQueueItem_Call {
 	_c.Call.Return(run)
 	return _c
 }
