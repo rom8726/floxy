@@ -11,6 +11,10 @@ import (
 )
 
 func TestCancelWorkflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -90,6 +94,10 @@ func TestCancelWorkflow(t *testing.T) {
 }
 
 func TestCancelWorkflowTerminalState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -143,6 +151,10 @@ func TestCancelWorkflowTerminalState(t *testing.T) {
 }
 
 func TestAbortWorkflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -222,6 +234,10 @@ func TestAbortWorkflow(t *testing.T) {
 }
 
 func TestAbortWorkflowTerminalState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -271,6 +287,10 @@ func TestAbortWorkflowTerminalState(t *testing.T) {
 }
 
 func TestCancelWorkflowWithCompensation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

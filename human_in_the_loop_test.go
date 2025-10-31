@@ -11,6 +11,10 @@ import (
 )
 
 func TestHumanInTheLoopConfirmed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -131,6 +135,10 @@ func TestHumanInTheLoopConfirmed(t *testing.T) {
 }
 
 func TestHumanInTheLoopRejected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

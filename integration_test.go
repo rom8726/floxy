@@ -59,6 +59,10 @@ func setupTestDatabase(t *testing.T) (testcontainers.Container, *pgxpool.Pool) {
 }
 
 func TestIntegration_DataPipeline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -140,6 +144,10 @@ func TestIntegration_DataPipeline(t *testing.T) {
 }
 
 func TestIntegration_Ecommerce(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -218,6 +226,10 @@ func TestIntegration_Ecommerce(t *testing.T) {
 }
 
 func TestIntegration_Microservices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -314,6 +326,10 @@ done:
 }
 
 func TestIntegration_SavePointDemo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -401,6 +417,10 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 }
 
 func TestIntegration_RollbackDemo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -507,6 +527,10 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 }
 
 func TestIntegration_Condition__true(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -578,6 +602,10 @@ func TestIntegration_Condition__true(t *testing.T) {
 }
 
 func TestIntegration_Condition__false(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -649,6 +677,10 @@ func TestIntegration_Condition__false(t *testing.T) {
 }
 
 func TestIntegration_Condition_Logic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

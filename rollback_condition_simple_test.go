@@ -11,6 +11,10 @@ import (
 )
 
 func TestRollbackConditionSimple(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -91,6 +95,10 @@ func TestRollbackConditionSimple(t *testing.T) {
 }
 
 func TestRollbackConditionWithFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

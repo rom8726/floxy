@@ -13,6 +13,10 @@ import (
 )
 
 func TestDLQ_BasicWorkflowFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -86,6 +90,10 @@ func TestDLQ_BasicWorkflowFailure(t *testing.T) {
 }
 
 func TestDLQ_RequeueFromDLQ(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -185,6 +193,10 @@ func TestDLQ_RequeueFromDLQ(t *testing.T) {
 }
 
 func TestDLQ_RequeueWithNewInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -284,8 +296,11 @@ func TestDLQ_RequeueWithNewInput(t *testing.T) {
 }
 
 func TestDLQ_CompensationMaxRetriesExceeded(t *testing.T) {
-	container, pool := setupTestDatabase(t)
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
 
+	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
 		_ = container.Terminate(context.Background())
@@ -346,73 +361,12 @@ func TestDLQ_CompensationMaxRetriesExceeded(t *testing.T) {
 	assert.Equal(t, "compensation max retries exceeded", dlqRecord.Reason)
 }
 
-// Helper function to get DLQ records for an instance
-func getDLQRecordsForInstance(ctx context.Context, pool *pgxpool.Pool, instanceID int64) ([]DeadLetterRecord, error) {
-	const query = `
-		SELECT id, instance_id, workflow_id, step_id, step_name, step_type, 
-		       input, error, reason, created_at
-		FROM workflows.workflow_dlq
-		WHERE instance_id = $1
-		ORDER BY created_at DESC`
-
-	rows, err := pool.Query(ctx, query, instanceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	records := make([]DeadLetterRecord, 0)
-	for rows.Next() {
-		var rec DeadLetterRecord
-		err := rows.Scan(
-			&rec.ID,
-			&rec.InstanceID,
-			&rec.WorkflowID,
-			&rec.StepID,
-			&rec.StepName,
-			&rec.StepType,
-			&rec.Input,
-			&rec.Error,
-			&rec.Reason,
-			&rec.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		records = append(records, rec)
-	}
-
-	return records, rows.Err()
-}
-
-// Test handlers
-
-type DLQSimpleTestHandler struct{}
-
-func (h *DLQSimpleTestHandler) Name() string { return "simple-test" }
-
-func (h *DLQSimpleTestHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	return input, nil
-}
-
-type DLQFailingTestHandler struct{}
-
-func (h *DLQFailingTestHandler) Name() string { return "failing-test" }
-
-func (h *DLQFailingTestHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	return nil, fmt.Errorf("intentional failure for testing")
-}
-
-type FailingCompensationHandler struct{}
-
-func (h *FailingCompensationHandler) Name() string { return "failing-compensation" }
-
-func (h *FailingCompensationHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
-	return nil, fmt.Errorf("compensation handler failed")
-}
-
 // TestDLQ_ForkJoinParallelFlow tests DLQ behavior with parallel fork-join flow
 func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -575,4 +529,69 @@ func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
 	if !foundJoin {
 		t.Log("Join step not yet created, which is acceptable")
 	}
+}
+
+// Helper function to get DLQ records for an instance
+func getDLQRecordsForInstance(ctx context.Context, pool *pgxpool.Pool, instanceID int64) ([]DeadLetterRecord, error) {
+	const query = `
+		SELECT id, instance_id, workflow_id, step_id, step_name, step_type, 
+		       input, error, reason, created_at
+		FROM workflows.workflow_dlq
+		WHERE instance_id = $1
+		ORDER BY created_at DESC`
+
+	rows, err := pool.Query(ctx, query, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]DeadLetterRecord, 0)
+	for rows.Next() {
+		var rec DeadLetterRecord
+		err := rows.Scan(
+			&rec.ID,
+			&rec.InstanceID,
+			&rec.WorkflowID,
+			&rec.StepID,
+			&rec.StepName,
+			&rec.StepType,
+			&rec.Input,
+			&rec.Error,
+			&rec.Reason,
+			&rec.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+
+	return records, rows.Err()
+}
+
+// Test handlers
+
+type DLQSimpleTestHandler struct{}
+
+func (h *DLQSimpleTestHandler) Name() string { return "simple-test" }
+
+func (h *DLQSimpleTestHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	return input, nil
+}
+
+type DLQFailingTestHandler struct{}
+
+func (h *DLQFailingTestHandler) Name() string { return "failing-test" }
+
+func (h *DLQFailingTestHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	return nil, fmt.Errorf("intentional failure for testing")
+}
+
+type FailingCompensationHandler struct{}
+
+func (h *FailingCompensationHandler) Name() string { return "failing-compensation" }
+
+func (h *FailingCompensationHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	return nil, fmt.Errorf("compensation handler failed")
 }

@@ -11,6 +11,10 @@ import (
 )
 
 func TestRollbackConditionFailureInParallelBranches(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -107,6 +111,10 @@ func TestRollbackConditionFailureInParallelBranches(t *testing.T) {
 }
 
 func TestRollbackConditionFailureInParallelBranchesWithFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

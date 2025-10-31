@@ -12,6 +12,10 @@ import (
 )
 
 func TestCancelWorkflowWithParallelSteps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()
@@ -135,6 +139,10 @@ func TestCancelWorkflowWithParallelSteps(t *testing.T) {
 }
 
 func TestAbortWorkflowWithParallelSteps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	container, pool := setupTestDatabase(t)
 	t.Cleanup(func() {
 		pool.Close()

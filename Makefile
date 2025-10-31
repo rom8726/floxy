@@ -20,6 +20,11 @@ help: ## Prints this message
 	@echo "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
 .PHONY: test
-test: ## Run unit tests
+test: ## Run all tests
 	@go test -cover -coverprofile=coverage.out -v ./...
+	@go tool cover -html=coverage.out -o coverage.html
+
+.PHONY: test.short
+test.short: ## Run short unit tests
+	@go test -short -cover -coverprofile=coverage.out -v ./...
 	@go tool cover -html=coverage.out -o coverage.html
