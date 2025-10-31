@@ -29,3 +29,26 @@ func WithEnginePluginManager(pluginManager *PluginManager) EngineOption {
 		e.pluginManager = pluginManager
 	}
 }
+
+// WithMissingHandlerCooldown Distributed missing-handler behavior options
+func WithMissingHandlerCooldown(d time.Duration) EngineOption {
+	return func(e *Engine) {
+		e.missingHandlerCooldown = d
+	}
+}
+
+func WithMissingHandlerLogThrottle(d time.Duration) EngineOption {
+	return func(e *Engine) {
+		e.missingHandlerLogThrottle = d
+	}
+}
+
+// WithMissingHandlerJitterPct Percent in [0,1], e.g. 0.2 = +/-20% jitter
+func WithMissingHandlerJitterPct(pct float64) EngineOption {
+	return func(e *Engine) {
+		if pct < 0 {
+			pct = 0
+		}
+		e.missingHandlerJitterPct = pct
+	}
+}

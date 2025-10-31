@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -31,6 +32,13 @@ type Engine struct {
 	humanDecisionWaitingEvents chan HumanDecisionWaitingEvent
 
 	pluginManager *PluginManager
+
+	// Missing-handler behavior controls
+	missingHandlerCooldown    time.Duration
+	missingHandlerLogThrottle time.Duration
+	missingHandlerJitterPct   float64
+	skipLogMu                 sync.Mutex
+	skipLogNextAllowed        map[string]time.Time
 }
 
 func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
@@ -41,6 +49,11 @@ func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 		cancelContexts:       make(map[int64]map[int64]context.CancelFunc),
 		shutdownCh:           make(chan struct{}),
 		cancelWorkerInterval: defaultCancelWorkerInterval,
+		// defaults for missing-handler behavior
+		missingHandlerCooldown:    time.Second,
+		missingHandlerLogThrottle: 5 * time.Second,
+		missingHandlerJitterPct:   0.2,
+		skipLogNextAllowed:        make(map[string]time.Time),
 	}
 
 	for _, opt := range opts {
@@ -50,6 +63,46 @@ func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 	go engine.cancelRequestsWorker()
 
 	return engine
+}
+
+// jitteredCooldown returns cooldown with +/-jitter percentage applied.
+func (engine *Engine) jitteredCooldown() time.Duration {
+	base := engine.missingHandlerCooldown
+	if base <= 0 {
+		return 0
+	}
+	pct := engine.missingHandlerJitterPct
+	if pct <= 0 {
+		return base
+	}
+	// random in [-pct, +pct]
+	delta := (rand.Float64()*2 - 1) * pct
+	adj := float64(base) * (1 + delta)
+	if adj < float64(time.Millisecond) {
+		adj = float64(time.Millisecond)
+	}
+
+	return time.Duration(adj)
+}
+
+// shouldLogSkip returns true if we should emit a skip event for the given key now.
+func (engine *Engine) shouldLogSkip(key string) bool {
+	if engine.missingHandlerLogThrottle <= 0 {
+		return true
+	}
+
+	now := time.Now()
+
+	engine.skipLogMu.Lock()
+	defer engine.skipLogMu.Unlock()
+
+	if next, ok := engine.skipLogNextAllowed[key]; ok && now.Before(next) {
+		return false
+	}
+
+	engine.skipLogNextAllowed[key] = now.Add(engine.missingHandlerLogThrottle)
+
+	return true
 }
 
 func (engine *Engine) RegisterHandler(handler StepHandler) {
@@ -221,14 +274,28 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 					_, has := engine.handlers[onFailDef.Handler]
 					engine.mu.RUnlock()
 					if !has {
-						if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
-							return fmt.Errorf("release queue item: %w", err)
+						// Reschedule with cooldown and release so another service can pick it up later
+						delay := engine.jitteredCooldown()
+						if delay > 0 {
+							if err := engine.store.RescheduleAndReleaseQueueItem(ctx, item.ID, delay); err != nil {
+								return fmt.Errorf("reschedule queue item: %w", err)
+							}
+						} else {
+							if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
+								return fmt.Errorf("release queue item: %w", err)
+							}
 						}
+
 						removeFromQueue = false
-						_ = engine.store.LogEvent(ctx, instance.ID, nil, EventStepSkippedMissingHandler, map[string]any{
-							KeyStepName: step.StepName,
-							KeyMessage:  "no local compensation handler registered; released to queue",
-						})
+						// Throttle skip logs to avoid flooding
+						logKey := fmt.Sprintf("comp-skip:%d:%s", instance.ID, step.StepName)
+						if engine.shouldLogSkip(logKey) {
+							_ = engine.store.LogEvent(ctx, instance.ID, nil, EventStepSkippedMissingHandler, map[string]any{
+								KeyStepName: step.StepName,
+								KeyMessage:  "no local compensation handler registered; rescheduled",
+							})
+						}
+
 						return nil
 					}
 				}
@@ -252,15 +319,26 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			_, has := engine.handlers[stepDef.Handler]
 			engine.mu.RUnlock()
 			if !has {
-				// Return queue item back to the queue
-				if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
-					return fmt.Errorf("release queue item: %w", err)
+				// Reschedule with cooldown and release so another service can pick it up later
+				delay := engine.jitteredCooldown()
+				if delay > 0 {
+					if err := engine.store.RescheduleAndReleaseQueueItem(ctx, item.ID, delay); err != nil {
+						return fmt.Errorf("reschedule queue item: %w", err)
+					}
+				} else {
+					if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
+						return fmt.Errorf("release queue item: %w", err)
+					}
 				}
 				removeFromQueue = false
-				_ = engine.store.LogEvent(ctx, instance.ID, nil, "step_skipped_missing_handler", map[string]any{
-					KeyStepName: step.StepName,
-					KeyMessage:  "no local handler registered; released to queue",
-				})
+				// Throttle skip logs to avoid flooding
+				logKey := fmt.Sprintf("task-skip:%d:%s", instance.ID, step.StepName)
+				if engine.shouldLogSkip(logKey) {
+					_ = engine.store.LogEvent(ctx, instance.ID, nil, EventStepSkippedMissingHandler, map[string]any{
+						KeyStepName: step.StepName,
+						KeyMessage:  "no local handler registered; rescheduled",
+					})
+				}
 				return nil
 			}
 		}

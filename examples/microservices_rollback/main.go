@@ -220,7 +220,10 @@ func main() {
 
 	engines := make(map[string]*floxy.Engine)
 	for _, s := range services {
-		eng := floxy.NewEngine(pool)
+		eng := floxy.NewEngine(pool,
+			floxy.WithMissingHandlerCooldown(time.Millisecond*50),
+			floxy.WithMissingHandlerLogThrottle(time.Millisecond*100),
+		)
 		eng.RegisterHandler(s.handler)
 		engines[s.name] = eng
 	}
