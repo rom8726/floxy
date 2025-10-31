@@ -205,6 +205,35 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 
 		// Check if this is a compensation
 		if step.Status == StepStatusCompensation {
+			// For distributed setup: if local engine doesn't have the compensation handler,
+			// release the queue item so another service can execute the compensation.
+			def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+			if err != nil {
+				return fmt.Errorf("get workflow definition: %w", err)
+			}
+			stepDef, ok := def.Definition.Steps[step.StepName]
+			if !ok {
+				return fmt.Errorf("step definition not found: %s", step.StepName)
+			}
+			if stepDef.OnFailure != "" {
+				if onFailDef, ok := def.Definition.Steps[stepDef.OnFailure]; ok {
+					engine.mu.RLock()
+					_, has := engine.handlers[onFailDef.Handler]
+					engine.mu.RUnlock()
+					if !has {
+						if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
+							return fmt.Errorf("release queue item: %w", err)
+						}
+						removeFromQueue = false
+						_ = engine.store.LogEvent(ctx, instance.ID, nil, EventStepSkippedMissingHandler, map[string]any{
+							KeyStepName: step.StepName,
+							KeyMessage:  "no local compensation handler registered; released to queue",
+						})
+						return nil
+					}
+				}
+			}
+
 			return engine.executeCompensationStep(ctx, instance, step)
 		}
 
