@@ -1125,6 +1125,14 @@ func (engine *Engine) handleStepSuccess(
 						KeyStepName: step.StepName,
 						KeyMessage:  fmt.Sprintf("Replaced virtual step %s with %s in join %s", virtualStep, step.StepName, joinStepName),
 					})
+					// After replacing virtual step with real step, notify Join about the completion
+					// This ensures Join is aware that the real step has completed
+					if err := engine.notifyJoinStepsForStep(ctx, instance.ID, joinStepName, step.StepName, true); err != nil {
+						_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+							KeyStepName: step.StepName,
+							KeyError:    fmt.Sprintf("Failed to notify join after virtual step replacement: %v", err),
+						})
+					}
 				}
 			}
 		} else if engine.isTerminalStepInForkBranch(ctx, instance.ID, step.StepName, def) {
@@ -1340,6 +1348,111 @@ func (engine *Engine) handleStepFailure(
 	return nil
 }
 
+// notifyJoinStepsForStep notifies a specific Join step about a specific step completion.
+// This is used after replacing virtual steps to ensure Join is aware of real step completion.
+func (engine *Engine) notifyJoinStepsForStep(
+	ctx context.Context,
+	instanceID int64,
+	joinStepName, completedStepName string,
+	success bool,
+) error {
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	// Get Join step definition to check strategy
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return err
+	}
+
+	stepDef, ok := def.Definition.Steps[joinStepName]
+	if !ok || stepDef.Type != StepTypeJoin {
+		return fmt.Errorf("join step %s not found or not a join step", joinStepName)
+	}
+
+	// Update join state for this specific step
+	isReady, err := engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
+	if err != nil {
+		return fmt.Errorf("update join state for %s: %w", joinStepName, err)
+	}
+
+	// Additional check: don't consider join ready if there are still pending/running steps
+	if isReady {
+		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+		if hasPendingSteps {
+			isReady = false
+			_, _ = engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
+		}
+	}
+
+	_ = engine.store.LogEvent(ctx, instanceID, nil, EventJoinUpdated, map[string]any{
+		KeyJoinStep:      joinStepName,
+		KeyCompletedStep: completedStepName,
+		KeySuccess:       success,
+		KeyIsReady:       isReady,
+	})
+
+	if isReady {
+		joinStepExists := false
+		for _, s := range steps {
+			if s.StepName == joinStepName {
+				joinStepExists = true
+
+				break
+			}
+		}
+
+		if !joinStepExists {
+			var joinInput json.RawMessage
+			for _, s := range steps {
+				if s.StepName == completedStepName {
+					joinInput = s.Input
+
+					break
+				}
+			}
+
+			joinStep := &WorkflowStep{
+				InstanceID: instanceID,
+				StepName:   joinStepName,
+				StepType:   StepTypeJoin,
+				Status:     StepStatusPending,
+				Input:      joinInput,
+				MaxRetries: 0,
+			}
+
+			if instance.Status == StatusDLQ {
+				joinStep.Status = StepStatusPaused
+				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+					return fmt.Errorf("create join step: %w", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+					KeyJoinStep: joinStepName,
+				})
+			} else {
+				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
+					return fmt.Errorf("create join step: %w", err)
+				}
+				if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
+					return fmt.Errorf("enqueue join step: %w", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
+					KeyJoinStep: joinStepName,
+				})
+			}
+		}
+	}
+
+	return nil
+}
+
 func (engine *Engine) notifyJoinSteps(
 	ctx context.Context,
 	instanceID int64,
@@ -1366,11 +1479,30 @@ func (engine *Engine) notifyJoinSteps(
 			continue
 		}
 
+		// Check if Join is waiting for this step by checking JoinState (which has actual waitFor after replacements)
+		// Also check stepDef.WaitFor for backwards compatibility and for virtual steps that haven't been replaced yet
 		waitingForThis := false
-		for _, waitFor := range stepDef.WaitFor {
-			if waitFor == completedStepName {
-				waitingForThis = true
-				break
+
+		// First check JoinState (actual state after virtual step replacements)
+		joinState, err := engine.store.GetJoinState(ctx, instanceID, stepName)
+		if err == nil && joinState != nil {
+			for _, waitFor := range joinState.WaitingFor {
+				if waitFor == completedStepName {
+					waitingForThis = true
+
+					break
+				}
+			}
+		}
+
+		// Also check stepDef.WaitFor for virtual steps and initial setup
+		if !waitingForThis {
+			for _, waitFor := range stepDef.WaitFor {
+				if waitFor == completedStepName {
+					waitingForThis = true
+
+					break
+				}
 			}
 		}
 
