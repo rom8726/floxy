@@ -384,7 +384,7 @@ err = engine.RequeueFromDLQ(ctx, dlqID, &newInput)
 
 ### Condition Steps in Forked Branches
 
-When using `Condition` steps within `Fork` branches, the `Join` step may not wait for all dynamically created steps (like `else` branches) to complete before considering the workflow finished. This can lead to premature workflow completion.
+When using `Condition` steps within `Fork` branches, the `JoinStep` step may not wait for all dynamically created steps (like `else` branches) to complete before considering the workflow finished. This can lead to premature workflow completion.
 
 **Example of problematic case:**
 ```go
@@ -404,7 +404,7 @@ Fork("parallel_branch", func(branch1 *floxy.Builder) {
 JoinStep("join", []string{"branch1_step1", "branch2_step1"}, floxy.JoinStrategyAll)
 ```
 
-**SOLVED:** Avoid using `JoinStep` with `Condition`, use `Join` instead that dynamically creates waitFor list.
+**SOLVED:** Avoid using `JoinStep` with `Condition`, use `Join` instead that dynamically creates waitFor list (virtual steps conception used).
 
 See `examples/condition/main.go` for a demonstration of this issue.
 
