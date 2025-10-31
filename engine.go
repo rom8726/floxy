@@ -157,8 +157,11 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			return nil
 		}
 
+		removeFromQueue := true
 		defer func() {
-			_ = engine.store.RemoveFromQueue(ctx, item.ID)
+			if removeFromQueue {
+				_ = engine.store.RemoveFromQueue(ctx, item.ID)
+			}
 		}()
 
 		instance, err := engine.store.GetInstance(ctx, item.InstanceID)
@@ -203,6 +206,34 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 		// Check if this is a compensation
 		if step.Status == StepStatusCompensation {
 			return engine.executeCompensationStep(ctx, instance, step)
+		}
+
+		// Distributed handlers: if this is a task step and no local handler is registered,
+		// release the queue item so another service can pick it up, without failing the step.
+		def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
+		stepDef, ok := def.Definition.Steps[step.StepName]
+		if !ok {
+			return fmt.Errorf("step definition not found: %s", step.StepName)
+		}
+		if step.StepType == StepTypeTask {
+			engine.mu.RLock()
+			_, has := engine.handlers[stepDef.Handler]
+			engine.mu.RUnlock()
+			if !has {
+				// Return queue item back to the queue
+				if err := engine.store.ReleaseQueueItem(ctx, item.ID); err != nil {
+					return fmt.Errorf("release queue item: %w", err)
+				}
+				removeFromQueue = false
+				_ = engine.store.LogEvent(ctx, instance.ID, nil, "step_skipped_missing_handler", map[string]any{
+					KeyStepName: step.StepName,
+					KeyMessage:  "no local handler registered; released to queue",
+				})
+				return nil
+			}
 		}
 
 		return engine.executeStep(ctx, instance, step)

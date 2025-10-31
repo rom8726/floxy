@@ -280,6 +280,15 @@ func (store *StoreImpl) RemoveFromQueue(ctx context.Context, queueID int64) erro
 	return err
 }
 
+func (store *StoreImpl) ReleaseQueueItem(ctx context.Context, queueID int64) error {
+	executor := store.getExecutor(ctx)
+
+	const query = `UPDATE workflows.workflow_queue SET attempted_at = NULL, attempted_by = NULL WHERE id = $1`
+	_, err := executor.Exec(ctx, query, queueID)
+
+	return err
+}
+
 func (store *StoreImpl) LogEvent(
 	ctx context.Context,
 	instanceID int64,

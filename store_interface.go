@@ -46,6 +46,7 @@ type Store interface {
 	) error
 	DequeueStep(ctx context.Context, workerID string) (*QueueItem, error)
 	RemoveFromQueue(ctx context.Context, queueID int64) error
+	ReleaseQueueItem(ctx context.Context, queueID int64) error
 	LogEvent(
 		ctx context.Context,
 		instanceID int64,
