@@ -3,7 +3,6 @@ package floxy
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -245,6 +244,9 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 	return builder
 }
 
+// JoinStep should be used without Condition. Use Join instead, which automatically handles
+// dynamic step detection in fork branches. JoinStep with an explicit waitFor list does not
+// account for dynamically created steps (e.g., Condition else branches).
 func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStrategy) *Builder {
 	if builder.err != nil {
 		return builder
@@ -286,6 +288,46 @@ func (builder *Builder) JoinStep(name string, waitFor []string, strategy JoinStr
 	return builder
 }
 
+func (builder *Builder) Join(name string, strategy JoinStrategy) *Builder {
+	if builder.err != nil {
+		return builder
+	}
+
+	if builder.currentStep == "" {
+		builder.err = fmt.Errorf("Join %q called with no step", name)
+
+		return builder
+	}
+
+	if name == "" {
+		builder.err = errors.New("Join called with no name")
+
+		return builder
+	}
+
+	if strategy == "" {
+		strategy = JoinStrategyAll
+	}
+
+	step := &StepDefinition{
+		Name:         name,
+		Type:         StepTypeJoin,
+		JoinStrategy: strategy,
+		Prev:         builder.currentStep,
+		Metadata:     make(map[string]any),
+	}
+
+	builder.steps[name] = step
+
+	if builder.currentStep != "" && builder.currentStep != name {
+		builder.steps[builder.currentStep].Next = append(builder.steps[builder.currentStep].Next, name)
+	}
+
+	builder.currentStep = name
+
+	return builder
+}
+
 func (builder *Builder) ForkJoin(
 	forkName string,
 	branches []func(branch *Builder),
@@ -297,10 +339,8 @@ func (builder *Builder) ForkJoin(
 	}
 
 	_ = builder.Fork(forkName, branches...)
-	forkStep := builder.steps[forkName]
-	waitFor := slices.Clone(forkStep.Parallel)
 
-	return builder.JoinStep(joinName, waitFor, joinStrategy)
+	return builder.Join(joinName, joinStrategy)
 }
 
 func (builder *Builder) SavePoint(name string) *Builder {

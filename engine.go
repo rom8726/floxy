@@ -1104,6 +1104,58 @@ func (engine *Engine) handleStepSuccess(
 		KeyStepName: step.StepName,
 	})
 
+	// Check if this is a terminal step in a fork branch
+	// If so, dynamically add it to the Join step's WaitFor list
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err == nil {
+		if engine.isTerminalStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+			joinStepName, err := engine.findJoinStepForForkBranch(ctx, instance.ID, step.StepName, def)
+			if err == nil && joinStepName != "" {
+				// Check if this step is not already in the WaitFor list
+				joinState, err := engine.store.GetJoinState(ctx, instance.ID, joinStepName)
+				if err == nil && joinState != nil {
+					isAlreadyWaiting := false
+					for _, waitFor := range joinState.WaitingFor {
+						if waitFor == step.StepName {
+							isAlreadyWaiting = true
+							break
+						}
+					}
+					if !isAlreadyWaiting {
+						// Add this terminal step to the Join step's WaitFor list
+						if err := engine.store.AddToJoinWaitFor(ctx, instance.ID, joinStepName, step.StepName); err != nil {
+							// Log error but don't fail the step
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyError:    fmt.Sprintf("Failed to add step to join waitFor: %v", err),
+							})
+						} else {
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyMessage:  fmt.Sprintf("Added terminal step to join %s waitFor", joinStepName),
+							})
+						}
+					}
+				} else {
+					// JoinState doesn't exist yet, create it with this terminal step
+					joinStepDef, ok := def.Definition.Steps[joinStepName]
+					if ok {
+						strategy := joinStepDef.JoinStrategy
+						if strategy == "" {
+							strategy = JoinStrategyAll
+						}
+						if err := engine.store.CreateJoinState(ctx, instance.ID, joinStepName, []string{step.StepName}, strategy); err != nil {
+							_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepCompleted, map[string]any{
+								KeyStepName: step.StepName,
+								KeyError:    fmt.Sprintf("Failed to create join state: %v", err),
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if err := engine.notifyJoinSteps(ctx, instance.ID, step.StepName, true); err != nil {
 		return fmt.Errorf("notify join steps: %w", err)
 	}
@@ -1116,9 +1168,13 @@ func (engine *Engine) handleStepSuccess(
 		return nil
 	}
 
-	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-	if err != nil {
-		return fmt.Errorf("get workflow definition: %w", err)
+	// Get workflow definition if we haven't already
+	if def == nil {
+		var err error
+		def, err = engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
 	}
 
 	if next {
@@ -1948,4 +2004,148 @@ func (engine *Engine) isStepDescendantOf(stepName, ancestorStepName string, def 
 	}
 
 	return false
+}
+
+// isTerminalStepInForkBranch checks if a step is a terminal step in a fork branch.
+// A step is terminal if it has no Next steps, is not a Join step, and is in a fork branch.
+func (engine *Engine) isTerminalStepInForkBranch(
+	ctx context.Context,
+	instanceID int64,
+	stepName string,
+	def *WorkflowDefinition,
+) bool {
+	stepDef, ok := def.Definition.Steps[stepName]
+	if !ok {
+		return false
+	}
+
+	// Join steps are not terminal (they are the end of fork branches)
+	if stepDef.Type == StepTypeJoin {
+		return false
+	}
+
+	// A step is terminal if it has no Next steps
+	if len(stepDef.Next) > 0 {
+		return false
+	}
+
+	// Check if this step is actually in a fork branch by finding the fork step
+	forkStepName := engine.findForkStepForParallelStep(ctx, instanceID, stepName)
+	if forkStepName != "" {
+		return true
+	}
+
+	// Try to find fork by traversing backwards through Prev
+	visited := make(map[string]bool)
+	current := stepDef.Prev
+	for current != "" && current != rootStepName {
+		if visited[current] {
+			break
+		}
+		visited[current] = true
+
+		currentDef, ok := def.Definition.Steps[current]
+		if !ok {
+			break
+		}
+
+		if currentDef.Type == StepTypeFork {
+			return true
+		}
+
+		// Check if this step is in the Parallel array of a fork
+		for _, defStep := range def.Definition.Steps {
+			if defStep.Type == StepTypeFork {
+				for _, parallelStep := range defStep.Parallel {
+					if parallelStep == current {
+						return true
+					}
+				}
+			}
+		}
+
+		current = currentDef.Prev
+	}
+
+	return false
+}
+
+// findJoinStepForForkBranch finds the Join step that should wait for steps in the given fork branch.
+// It looks for a Join step that follows the fork step which created the branch containing stepName.
+func (engine *Engine) findJoinStepForForkBranch(
+	ctx context.Context,
+	instanceID int64,
+	stepName string,
+	def *WorkflowDefinition,
+) (string, error) {
+	// Find the fork step that created the branch containing this step
+	forkStepName := engine.findForkStepForParallelStep(ctx, instanceID, stepName)
+	if forkStepName == "" {
+		// Try to find fork by traversing backwards through Prev
+		stepDef, ok := def.Definition.Steps[stepName]
+		if !ok {
+			return "", nil
+		}
+
+		// Traverse backwards to find a fork step
+		visited := make(map[string]bool)
+		current := stepDef.Prev
+		for current != "" && current != rootStepName {
+			if visited[current] {
+				break
+			}
+			visited[current] = true
+
+			currentDef, ok := def.Definition.Steps[current]
+			if !ok {
+				break
+			}
+
+			if currentDef.Type == StepTypeFork {
+				forkStepName = current
+				break
+			}
+
+			// Check if this step is in the Parallel array of a fork
+			for name, defStep := range def.Definition.Steps {
+				if defStep.Type == StepTypeFork {
+					for _, parallelStep := range defStep.Parallel {
+						if parallelStep == current {
+							forkStepName = name
+							break
+						}
+					}
+					if forkStepName != "" {
+						break
+					}
+				}
+			}
+
+			if forkStepName != "" {
+				break
+			}
+
+			current = currentDef.Prev
+		}
+	}
+
+	if forkStepName == "" {
+		return "", nil // Not in a fork branch
+	}
+
+	// Find Join step that follows this fork step
+	forkStepDef, ok := def.Definition.Steps[forkStepName]
+	if !ok {
+		return "", nil
+	}
+
+	// Look for Join step in Next steps of the fork
+	for _, nextStepName := range forkStepDef.Next {
+		nextStepDef, ok := def.Definition.Steps[nextStepName]
+		if ok && nextStepDef.Type == StepTypeJoin {
+			return nextStepName, nil
+		}
+	}
+
+	return "", nil
 }

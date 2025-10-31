@@ -40,12 +40,13 @@ func TestRollbackWithConditionSteps(t *testing.T) {
 				Then("branch1_next", "rollback-test", WithStepMaxRetries(1))
 		}, func(branch2 *Builder) {
 			branch2.Step("branch2_step1", "rollback-test", WithStepMaxRetries(1)).
-				Condition("branch2_condition", "{{ lt .count 3 }}", func(elseBranch *Builder) {
-					elseBranch.Step("branch2_else", "rollback-test", WithStepMaxRetries(1))
+				Condition("branch2_condition", "{{ gt .count 3 }}", func(elseBranch *Builder) {
+					// This will fail
+					elseBranch.Step("branch2_else", "failing-handler", WithStepMaxRetries(1))
 				}).
-				Then("branch2_next", "failing-handler", WithStepMaxRetries(1)) // This will fail
+				Then("branch2_next", "rollback-test", WithStepMaxRetries(1))
 		}).
-		JoinStep("join", []string{"branch1_step1", "branch2_step1"}, JoinStrategyAll).
+		Join("join", JoinStrategyAll).
 		Then("final", "rollback-test", WithStepMaxRetries(1)).
 		Build()
 
@@ -95,16 +96,13 @@ func TestRollbackWithConditionSteps(t *testing.T) {
 	// - branch1_else (completed)
 	// - branch2_step1 (completed)
 	// - branch2_condition (completed, true -> next)
-	// - branch2_next (failed - this triggers rollback)
+	// - branch2_next (should NOT be executed)
 	// - branch1_next (should NOT be executed)
-	// - branch2_else (should NOT be executed)
+	// - branch2_else (failed - this triggers rollback)
 
-	// The issue: join and final should NOT be executed if branch2_next fails
-	// But they are being executed, which means the rollback logic is not working correctly
-
-	// Verify that branch1_next and branch2_else were not executed
+	// Verify that branch1_next and branch2_next were not executed
 	assert.NotContains(t, stepNames, "branch1_next")
-	assert.NotContains(t, stepNames, "branch2_else")
+	assert.NotContains(t, stepNames, "branch2_next")
 
 	// Verify that the executed steps are present
 	assert.Contains(t, stepNames, "start")
@@ -114,7 +112,7 @@ func TestRollbackWithConditionSteps(t *testing.T) {
 	assert.Contains(t, stepNames, "branch1_else")
 	assert.Contains(t, stepNames, "branch2_step1")
 	assert.Contains(t, stepNames, "branch2_condition")
-	assert.Contains(t, stepNames, "branch2_next")
+	assert.Contains(t, stepNames, "branch2_else")
 }
 
 type RollbackTestHandler struct{}

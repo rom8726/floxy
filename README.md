@@ -404,7 +404,7 @@ Fork("parallel_branch", func(branch1 *floxy.Builder) {
 JoinStep("join", []string{"branch1_step1", "branch2_step1"}, floxy.JoinStrategyAll)
 ```
 
-**Workaround:** Avoid using `Condition` steps within `Fork` branches, or ensure all possible execution paths are explicitly listed in the `JoinStep` WaitFor array.
+**SOLVED:** Avoid using `JoinStep`, use `Join` instead that dynamically creates waitFor list.
 
 See `examples/condition/main.go` for a demonstration of this issue.
 
