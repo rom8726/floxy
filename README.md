@@ -31,13 +31,15 @@ floxy means "flow" + "flux" + "tiny".
 - **Saga Pattern**: Orchestrator-based saga implementation with compensation
 - **Workflows Versioning**: Safe changing flows using versions
 - **Transaction Management**: Built-in transaction support with rollback capabilities
-- **Parallel Execution**: Fork/Join patterns for concurrent workflow steps
+- **Parallel Execution**: Fork/Join patterns for concurrent workflow steps with dynamic wait-for detection
 - **Error Handling**: Automatic retry mechanisms and failure compensation
 - **SavePoints**: Rollback to specific points in workflow execution
 - **Conditional branching** with Condition steps. Smart rollback for parallel flows with condition steps
 - **Human-in-the-loop**: Interactive workflow steps that pause execution for human decisions
 - **Cancel\Abort**: Possibility to cancel workflow with rollback to the root step and immediate abort workflow
 - **Dead Letter Queue (DLQ)**: Two modes for error handling - Classic Saga with rollback/compensation or DLQ Mode with paused workflow and manual recovery
+- **Distributed Mode**: Microservices can register only their handlers; steps without local handlers are returned to queue for other services to process
+- **Priority Aging**: Prevents queue starvation by gradually increasing step priority as waiting time increases
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **Migrations**: Embedded database migrations with `go:embed`
 

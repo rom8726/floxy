@@ -76,8 +76,11 @@ Key features:
 * Partial rollback via **Save Points**.
 * **Conditional branching** with `Condition` steps.
 * **Smart rollback** for parallel flows with condition steps.
+* **Dynamic Join** with virtual steps for Condition branches in Fork flows.
 * **Human-in-the-loop** interactive workflow steps.
 * **Workflow control operations** for cancellation and abortion.
+* **Distributed mode** for multi-service workflow execution.
+* **Priority aging** to prevent queue starvation.
 * Unified runtime for both normal and compensation execution.
 
 ---
@@ -293,10 +296,108 @@ If `ship_order` fails, rollback occurs only up to `after_reserve`.
 | ------------- | ------------------------------ |
 | `step_id`     | Reference to `workflow_steps`. |
 | `instance_id` | Workflow instance ID.          |
-| `status`      | `pending` or `compensation`.   |
+| `priority`    | Step priority (0-100).         |
+| `scheduled_at` | When the step should be executed. |
+| `attempted_at` | When a worker claimed the step. |
+| `attempted_by` | Worker ID that claimed the step. |
 | `created_at`  | Timestamp.                     |
 
-### 6.2 Workflow Events
+### 6.2 Distributed Mode
+
+Floxy Engine supports **distributed mode** where multiple microservices can process the same workflow queue. Each service registers only the handlers it can execute.
+
+**Behavior:**
+
+1. **Handler Registration**: Each service registers only its own handlers:
+   ```go
+   // Service A registers payment handler
+   engine.RegisterHandler(&PaymentHandler{})
+   
+   // Service B registers shipping handler
+   engine.RegisterHandler(&ShippingHandler{})
+   ```
+
+2. **Step Execution Check**: When `ExecuteNext` is called:
+   - Engine checks if a handler is registered for the step's handler name
+   - If **handler exists**: Step is executed normally
+   - If **handler missing**: Step is returned to queue (released/rescheduled) for another service to process
+
+3. **Queue Item Release**: Steps without local handlers are:
+   - Released immediately (if cooldown is disabled)
+   - Rescheduled with cooldown delay (if `WithMissingHandlerCooldown` is set)
+   - Logged as skipped (with throttling to avoid log flooding)
+
+**Configuration:**
+
+```go
+engine := NewEngine(pool,
+    WithMissingHandlerCooldown(5*time.Second),      // Cooldown before rescheduling
+    WithMissingHandlerJitterPct(0.2),               // ±20% jitter on cooldown
+    WithMissingHandlerLogThrottle(1*time.Minute),   // Throttle skip logs
+)
+```
+
+**Example:**
+
+```go
+// Service 1: Payment service
+engine1 := NewEngine(pool)
+engine1.RegisterHandler(&PaymentHandler{}) // Only payment handler
+
+// Service 2: Shipping service
+engine2 := NewEngine(pool)
+engine2.RegisterHandler(&ShippingHandler{}) // Only shipping handler
+
+// Both services poll the same queue
+go func() {
+    for {
+        engine1.ExecuteNext(ctx, "payment-worker")
+        time.Sleep(100 * time.Millisecond)
+    }
+}()
+
+go func() {
+    for {
+        engine2.ExecuteNext(ctx, "shipping-worker")
+        time.Sleep(100 * time.Millisecond)
+    }
+}()
+```
+
+### 6.3 Priority Aging (Starvation Prevention)
+
+To prevent queue starvation where low-priority steps wait indefinitely, Floxy implements **priority aging**.
+
+**How it works:**
+
+1. **Initial Priority**: Steps are enqueued with their specified priority (0-100)
+2. **Aging Rate**: Priority increases over time at a configurable rate (points per second)
+3. **Effective Priority**: `min(100, priority + floor(wait_seconds * aging_rate))`
+4. **Ordering**: Queue items are ordered by effective priority (DESC), then `scheduled_at` (ASC)
+
+**Configuration:**
+
+```go
+store := NewStore(pool)
+store.SetAgingEnabled(true)
+store.SetAgingRate(0.5) // Increase priority by 0.5 points per second
+
+// Or via Engine options:
+engine := NewEngine(pool,
+    WithQueueAgingEnabled(true),
+    WithQueueAgingRate(0.5),
+)
+```
+
+**Example:**
+
+- Step with `priority=10` waits 100 seconds
+- With `agingRate=0.5`, effective priority = `min(100, 10 + floor(100 * 0.5))` = `min(100, 60)` = `60`
+- After 180 seconds: `min(100, 10 + floor(180 * 0.5))` = `min(100, 100)` = `100`
+
+This ensures low-priority steps eventually get processed even in busy queues.
+
+### 6.4 Workflow Events
 
 All state changes are persisted as events.
 
@@ -305,7 +406,7 @@ All state changes are persisted as events.
 | `instance_id` | Workflow instance.                                                                                                                        |
 | `step_name`   | Step name.                                                                                                                                |
 | `status`      | New state after event.                                                                                                                    |
-| `event_type`  | `step_started`, `step_failed`, `compensation_started`, `compensation_retry`, `compensation_success`, `compensation_max_retries_exceeded`. |
+| `event_type`  | `step_started`, `step_failed`, `compensation_started`, `compensation_retry`, `compensation_success`, `compensation_max_retries_exceeded`, `step_skipped_missing_handler`. |
 | `retry_count` | Current retry counter.                                                                                                                    |
 | `error`       | Error message, if any.                                                                                                                    |
 | `timestamp`   | Event time.                                                                                                                               |
@@ -334,6 +435,73 @@ All subtasks must complete before continuing.
 
 * `JoinStrategyAll` — wait for all branches.
 * `JoinStrategyAny` — proceed after the first completes.
+
+#### 7.2.1 Dynamic Join with Condition Steps
+
+When `Condition` steps are used within `Fork` branches, the `Join` step uses **dynamic wait-for detection** to correctly wait for all terminal steps, including dynamically created `else` branches.
+
+**Virtual Steps Mechanism:**
+
+During workflow definition:
+1. When a `Fork` or `Parallel` step is followed by `Join`, the builder traverses each branch
+2. If a `Condition` step is found, a virtual step `cond#<condition_step_name>` is added to the Join's `waitFor` list
+3. Only the first encountered `Condition` in each branch is considered
+
+During execution:
+1. When a terminal step is reached in a `Condition` branch, the engine:
+   - Finds the `Condition` step in the branch by traversing backwards
+   - Replaces the virtual step `cond#<condition_step_name>` with the actual terminal step name
+   - Notifies the Join step about the completion/failure
+2. This ensures Join correctly waits for the actual executed branch (either `then` or `else`)
+
+**Example:**
+
+```go
+Fork("parallel_branch", func(branch1 *Builder) {
+    branch1.Step("branch1_step1", "handler").
+        Condition("branch1_condition", "{{ gt .count 5 }}", func(elseBranch *Builder) {
+            elseBranch.Step("branch1_else", "handler") // Virtual step: cond#branch1_condition
+        }).
+        Then("branch1_next", "handler") // Will replace virtual step
+}, func(branch2 *Builder) {
+    branch2.Step("branch2_step1", "handler").
+        Condition("branch2_condition", "{{ lt .count 3 }}", func(elseBranch *Builder) {
+            elseBranch.Step("branch2_else", "handler") // Virtual step: cond#branch2_condition
+        }).
+        Then("branch2_next", "handler") // Will replace virtual step
+}).
+Join("join", JoinStrategyAll) // waitFor: [cond#branch1_condition, cond#branch2_condition]
+```
+
+**Execution Flow:**
+
+1. Workflow starts, both branches begin execution
+2. `branch1_condition` evaluates to `true` → `branch1_next` executes
+3. `branch2_condition` evaluates to `false` → `branch2_else` executes
+4. When `branch1_next` completes:
+   - Engine finds `branch1_condition` in the branch
+   - Replaces `cond#branch1_condition` with `branch1_next` in Join's `waitFor`
+   - Adds `branch1_next` to Join's completed list
+5. When `branch2_else` completes:
+   - Engine finds `branch2_condition` in the branch
+   - Replaces `cond#branch2_condition` with `branch2_else` in Join's `waitFor`
+   - Adds `branch2_else` to Join's completed list
+6. Join becomes ready when all branches complete
+
+**Failure Handling:**
+
+When a step fails in a Condition branch:
+- The virtual step is replaced with the failed step name
+- The failed step is added to Join's `failed` list
+- Join will fail if `JoinStrategyAll` is used and any step failed
+
+**Validation:**
+
+- Step names cannot start with `cond#` (reserved for virtual steps)
+- Virtual steps are skipped during cycle detection
+- Virtual steps are ignored in validation checks
+
+**Note:** `JoinStep` with explicit `waitFor` list is deprecated. Use `Join` method instead for automatic dynamic detection.
 
 ---
 
