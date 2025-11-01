@@ -16,11 +16,21 @@ import (
 var _ Store = (*StoreImpl)(nil)
 
 type StoreImpl struct {
-	db Tx
+	db           Tx
+	agingEnabled bool
+	agingRate    float64
 }
 
 func NewStore(pool *pgxpool.Pool) *StoreImpl {
-	return &StoreImpl{db: pool}
+	return &StoreImpl{db: pool, agingEnabled: true, agingRate: 0.5}
+}
+
+func (store *StoreImpl) SetAgingEnabled(enabled bool) {
+	store.agingEnabled = enabled
+}
+
+func (store *StoreImpl) SetAgingRate(rate float64) {
+	store.agingRate = rate
 }
 
 func (store *StoreImpl) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
@@ -243,7 +253,33 @@ VALUES ($1, $2, $3, $4)`
 func (store *StoreImpl) DequeueStep(ctx context.Context, workerID string) (*QueueItem, error) {
 	executor := store.getExecutor(ctx)
 
-	const query = `
+	now := time.Now()
+
+	var query string
+	var args []any
+	if store.agingEnabled && store.agingRate > 0 {
+		// Priority aging: increase effective priority as items wait
+		query = `
+WITH next_item AS (
+	SELECT id
+	FROM workflows.workflow_queue
+	WHERE scheduled_at <= $1 AND attempted_at IS NULL
+	ORDER BY
+		LEAST(100,
+			priority + FLOOR(EXTRACT(EPOCH FROM ($1 - scheduled_at)) * $2)
+		) DESC,
+		scheduled_at ASC
+	LIMIT 1
+	FOR UPDATE SKIP LOCKED
+)
+UPDATE workflows.workflow_queue
+SET attempted_at = $1, attempted_by = $3
+FROM next_item
+WHERE workflows.workflow_queue.id = next_item.id
+RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority`
+		args = []any{now, store.agingRate, workerID}
+	} else {
+		query = `
 WITH next_item AS (
 	SELECT id
 	FROM workflows.workflow_queue
@@ -257,9 +293,11 @@ SET attempted_at = $1, attempted_by = $2
 FROM next_item
 WHERE workflows.workflow_queue.id = next_item.id
 RETURNING workflows.workflow_queue.id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority`
+		args = []any{now, workerID}
+	}
 
 	item := &QueueItem{}
-	err := executor.QueryRow(ctx, query, time.Now(), workerID).Scan(
+	err := executor.QueryRow(ctx, query, args...).Scan(
 		&item.ID, &item.InstanceID, &item.StepID,
 		&item.ScheduledAt, &item.AttemptedAt, &item.AttemptedBy, &item.Priority,
 	)

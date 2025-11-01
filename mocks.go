@@ -3995,6 +3995,86 @@ func (_c *MockStore_SaveWorkflowDefinition_Call) RunAndReturn(run func(ctx conte
 	return _c
 }
 
+// SetAgingEnabled provides a mock function for the type MockStore
+func (_mock *MockStore) SetAgingEnabled(enabled bool) {
+	_mock.Called(enabled)
+	return
+}
+
+// MockStore_SetAgingEnabled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAgingEnabled'
+type MockStore_SetAgingEnabled_Call struct {
+	*mock.Call
+}
+
+// SetAgingEnabled is a helper method to define mock.On call
+//   - enabled bool
+func (_e *MockStore_Expecter) SetAgingEnabled(enabled interface{}) *MockStore_SetAgingEnabled_Call {
+	return &MockStore_SetAgingEnabled_Call{Call: _e.mock.On("SetAgingEnabled", enabled)}
+}
+
+func (_c *MockStore_SetAgingEnabled_Call) Run(run func(enabled bool)) *MockStore_SetAgingEnabled_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 bool
+		if args[0] != nil {
+			arg0 = args[0].(bool)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_SetAgingEnabled_Call) Return() *MockStore_SetAgingEnabled_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockStore_SetAgingEnabled_Call) RunAndReturn(run func(enabled bool)) *MockStore_SetAgingEnabled_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetAgingRate provides a mock function for the type MockStore
+func (_mock *MockStore) SetAgingRate(rate float64) {
+	_mock.Called(rate)
+	return
+}
+
+// MockStore_SetAgingRate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAgingRate'
+type MockStore_SetAgingRate_Call struct {
+	*mock.Call
+}
+
+// SetAgingRate is a helper method to define mock.On call
+//   - rate float64
+func (_e *MockStore_Expecter) SetAgingRate(rate interface{}) *MockStore_SetAgingRate_Call {
+	return &MockStore_SetAgingRate_Call{Call: _e.mock.On("SetAgingRate", rate)}
+}
+
+func (_c *MockStore_SetAgingRate_Call) Run(run func(rate float64)) *MockStore_SetAgingRate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 float64
+		if args[0] != nil {
+			arg0 = args[0].(float64)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_SetAgingRate_Call) Return() *MockStore_SetAgingRate_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockStore_SetAgingRate_Call) RunAndReturn(run func(rate float64)) *MockStore_SetAgingRate_Call {
+	_c.Run(run)
+	return _c
+}
+
 // UpdateInstanceStatus provides a mock function for the type MockStore
 func (_mock *MockStore) UpdateInstanceStatus(ctx context.Context, instanceID int64, status WorkflowStatus, output json.RawMessage, errMsg *string) error {
 	ret := _mock.Called(ctx, instanceID, status, output, errMsg)

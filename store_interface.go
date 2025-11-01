@@ -7,6 +7,8 @@ import (
 )
 
 type Store interface {
+	SetAgingEnabled(enabled bool)
+	SetAgingRate(rate float64)
 	SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error
 	GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error)
 	CreateInstance(

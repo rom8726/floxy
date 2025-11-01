@@ -223,6 +223,8 @@ func main() {
 		eng := floxy.NewEngine(pool,
 			floxy.WithMissingHandlerCooldown(time.Millisecond*50),
 			floxy.WithMissingHandlerLogThrottle(time.Millisecond*100),
+			floxy.WithQueueAgingEnabled(true),
+			floxy.WithQueueAgingRate(0.5),
 		)
 		eng.RegisterHandler(s.handler)
 		engines[s.name] = eng

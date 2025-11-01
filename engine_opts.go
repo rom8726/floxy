@@ -52,3 +52,23 @@ func WithMissingHandlerJitterPct(pct float64) EngineOption {
 		e.missingHandlerJitterPct = pct
 	}
 }
+
+// Queue starvation control (priority aging)
+
+// WithQueueAgingEnabled toggles SQL-side priority aging in dequeue ordering.
+func WithQueueAgingEnabled(enabled bool) EngineOption {
+	return func(e *Engine) {
+		e.store.SetAgingEnabled(enabled)
+	}
+}
+
+// WithQueueAgingRate sets the points-per-second rate for priority aging (e.g., 0.5).
+// Effective priority is min(100, priority + floor(wait_seconds * rate)).
+func WithQueueAgingRate(rate float64) EngineOption {
+	return func(e *Engine) {
+		if rate < 0 {
+			rate = 0
+		}
+		e.store.SetAgingRate(rate)
+	}
+}
