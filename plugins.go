@@ -8,21 +8,13 @@ import (
 	"sync"
 )
 
-type PluginPriority int
-
-const (
-	PriorityLow    PluginPriority = 0
-	PriorityNormal PluginPriority = 50
-	PriorityHigh   PluginPriority = 100
-)
-
 // Plugin represents a lifecycle hook system for workflows
 type Plugin interface {
 	// Name returns unique plugin identifier
 	Name() string
 
 	// Priority determines execution order (higher = earlier)
-	Priority() PluginPriority
+	Priority() Priority
 
 	// Lifecycle hooks
 	OnWorkflowStart(ctx context.Context, instance *WorkflowInstance) error
@@ -37,16 +29,16 @@ type Plugin interface {
 // BasePlugin provides default no-op implementations
 type BasePlugin struct {
 	name     string
-	priority PluginPriority
+	priority Priority
 }
 
-func NewBasePlugin(name string, priority PluginPriority) BasePlugin {
+func NewBasePlugin(name string, priority Priority) BasePlugin {
 	return BasePlugin{name: name, priority: priority}
 }
 
 func (p BasePlugin) Name() string { return p.name }
 
-func (p BasePlugin) Priority() PluginPriority { return p.priority }
+func (p BasePlugin) Priority() Priority { return p.priority }
 
 func (p BasePlugin) OnWorkflowStart(context.Context, *WorkflowInstance) error {
 	return nil

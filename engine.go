@@ -842,7 +842,7 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 			}
 
 			// Re-enqueue for retry
-			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, stepDef.Delay); err != nil {
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, stepDef.Delay); err != nil {
 				return fmt.Errorf("enqueue compensation retry: %w", err)
 			}
 
@@ -946,7 +946,7 @@ func (engine *Engine) executeFork(
 			return nil, fmt.Errorf("create fork step %s: %w", parallelStepName, err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, 0, parallelStepDef.Delay); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instance.ID, &parallelStep.ID, PriorityNormal, parallelStepDef.Delay); err != nil {
 			return nil, fmt.Errorf("enqueue fork step %s: %w", parallelStepName, err)
 		}
 	}
@@ -1097,7 +1097,7 @@ func (engine *Engine) executeHuman(
 		return nil, false, fmt.Errorf("update step status to waiting_decision: %w", err)
 	}
 
-	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 1, stepDef.Delay); err != nil {
+	if err := engine.store.EnqueueStep(ctx, instance.ID, &step.ID, PriorityHigher, stepDef.Delay); err != nil {
 		return nil, false, fmt.Errorf("enqueue step: %w", err)
 	}
 
@@ -1394,7 +1394,7 @@ func (engine *Engine) handleStepFailure(
 			KeyError:      errMsg,
 		})
 
-		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, 0, stepDef.Delay)
+		return engine.store.EnqueueStep(ctx, instance.ID, &step.ID, PriorityHigh, stepDef.Delay)
 	}
 
 	// If DLQ mode is enabled, pause instead of failing and skip rollback
@@ -1626,7 +1626,7 @@ func (engine *Engine) notifyJoinStepsForStep(
 				if err := engine.store.CreateStep(ctx, joinStep); err != nil {
 					return fmt.Errorf("create join step: %w", err)
 				}
-				if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
+				if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, PriorityNormal, 0); err != nil {
 					return fmt.Errorf("enqueue join step: %w", err)
 				}
 				_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
@@ -1761,7 +1761,7 @@ func (engine *Engine) notifyJoinSteps(
 					if err := engine.store.CreateStep(ctx, joinStep); err != nil {
 						return fmt.Errorf("create join step: %w", err)
 					}
-					if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, 0, 0); err != nil {
+					if err := engine.store.EnqueueStep(ctx, instanceID, &joinStep.ID, PriorityNormal, 0); err != nil {
 						return fmt.Errorf("enqueue join step: %w", err)
 					}
 					_ = engine.store.LogEvent(ctx, instanceID, &joinStep.ID, EventJoinReady, map[string]any{
@@ -1830,7 +1830,7 @@ func (engine *Engine) enqueueNextSteps(
 			return fmt.Errorf("create step: %w", err)
 		}
 
-		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, 0, stepDef.Delay); err != nil {
+		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, PriorityNormal, stepDef.Delay); err != nil {
 			return fmt.Errorf("enqueue step: %w", err)
 		}
 	}
@@ -2160,7 +2160,7 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 
 	// Enqueue compensation step for execution
 	retryDelay := CalculateRetryDelay(stepDef.RetryStrategy, stepDef.RetryDelay, newRetryCount)
-	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, 0, retryDelay); err != nil {
+	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, retryDelay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
 

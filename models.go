@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+type Priority int
+
+const (
+	PriorityLow    Priority = 0
+	PriorityLower  Priority = 25
+	PriorityNormal Priority = 50
+	PriorityHigher Priority = 75
+	PriorityHigh   Priority = 100
+)
+
 type WorkflowStatus string
 
 const (

@@ -71,7 +71,7 @@ func Test_handleStepSuccess_SimpleNextFlow(t *testing.T) {
 		ws.ID = 2002
 		return nil
 	})
-	store.EXPECT().EnqueueStep(mock.Anything, instance.ID, mock.Anything, 0, time.Duration(0)).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, instance.ID, mock.Anything, PriorityNormal, time.Duration(0)).Return(nil)
 
 	err := engine.handleStepSuccess(ctx, instance, step, stepDef, output, true)
 	assert.NoError(t, err)
@@ -107,7 +107,7 @@ func Test_handleStepFailure_RetryAvailable(t *testing.T) {
 	// Expectations: mark failed, log retry, re-enqueue with delay stepDef.Delay (0)
 	store.EXPECT().UpdateStep(mock.Anything, step.ID, StepStatusFailed, json.RawMessage(nil), &errMsg).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, instance.ID, &step.ID, EventStepRetry, mock.Anything).Return(nil)
-	store.EXPECT().EnqueueStep(mock.Anything, instance.ID, &step.ID, 0, stepDef.Delay).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, instance.ID, &step.ID, PriorityHigh, stepDef.Delay).Return(nil)
 
 	err := engine.handleStepFailure(ctx, instance, step, stepDef, stepErr)
 	assert.NoError(t, err)

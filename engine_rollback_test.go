@@ -65,7 +65,7 @@ func Test_rollbackStep_WithCompensation_RetryAvailable(t *testing.T) {
 	}
 
 	store.EXPECT().UpdateStepCompensationRetry(mock.Anything, step.ID, 1, StepStatusCompensation).Return(nil)
-	store.EXPECT().EnqueueStep(mock.Anything, step.InstanceID, &step.ID, 0, mock.Anything).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, step.InstanceID, &step.ID, PriorityHigh, mock.Anything).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, step.InstanceID, &step.ID, EventStepStarted, mock.Anything).Return(nil)
 
 	err := engine.rollbackStep(ctx, step, def)

@@ -272,7 +272,7 @@ func TestEngine_Start_Success(t *testing.T) {
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(step *WorkflowStep) bool {
 		return step.InstanceID == instance.ID && step.StepName == "step1"
 	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instance.ID, mock.Anything, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().EnqueueStep(mock.Anything, instance.ID, mock.Anything, PriorityNormal, mock.Anything).Return(nil)
 
 	instanceID, err := engine.Start(context.Background(), workflowID, input)
 
@@ -689,11 +689,11 @@ func TestEngine_ExecuteFork_Success(t *testing.T) {
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "parallel1"
 	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, PriorityNormal, mock.Anything).Return(nil)
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "parallel2"
 	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, PriorityNormal, mock.Anything).Return(nil)
 	mockStore.EXPECT().CreateJoinState(mock.Anything, instanceID, "join-step", []string{"parallel1", "parallel2"}, JoinStrategyAll).Return(nil)
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventJoinStateCreated, mock.Anything).Return(nil)
 
@@ -954,7 +954,7 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "step2"
 	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.Anything, PriorityNormal, mock.Anything).Return(nil)
 
 	err := engine.handleStepSuccess(context.Background(), instance, &step, stepDef, output, true)
 
@@ -1001,7 +1001,7 @@ func TestEngine_HandleStepFailure_WithRetries(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepRetry, mock.MatchedBy(func(data map[string]any) bool {
 		return data[KeyRetryCount] == 2 // RetryCount was incremented from 1 to 2
 	})).Return(nil)
-	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, &stepID, 0, mock.Anything).Return(nil)
+	mockStore.EXPECT().EnqueueStep(mock.Anything, instanceID, &stepID, PriorityHigh, mock.Anything).Return(nil)
 
 	err := engine.handleStepFailure(context.Background(), instance, step, stepDef, stepErr)
 

@@ -225,7 +225,7 @@ func (store *StoreImpl) EnqueueStep(
 	ctx context.Context,
 	instanceID int64,
 	stepID *int64,
-	priority int,
+	priority Priority,
 	delay time.Duration,
 ) error {
 	executor := store.getExecutor(ctx)

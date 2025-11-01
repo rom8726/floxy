@@ -913,18 +913,18 @@ func (_c *MockPlugin_OnWorkflowStart_Call) RunAndReturn(run func(ctx context.Con
 }
 
 // Priority provides a mock function for the type MockPlugin
-func (_mock *MockPlugin) Priority() PluginPriority {
+func (_mock *MockPlugin) Priority() Priority {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Priority")
 	}
 
-	var r0 PluginPriority
-	if returnFunc, ok := ret.Get(0).(func() PluginPriority); ok {
+	var r0 Priority
+	if returnFunc, ok := ret.Get(0).(func() Priority); ok {
 		r0 = returnFunc()
 	} else {
-		r0 = ret.Get(0).(PluginPriority)
+		r0 = ret.Get(0).(Priority)
 	}
 	return r0
 }
@@ -946,12 +946,12 @@ func (_c *MockPlugin_Priority_Call) Run(run func()) *MockPlugin_Priority_Call {
 	return _c
 }
 
-func (_c *MockPlugin_Priority_Call) Return(pluginPriority PluginPriority) *MockPlugin_Priority_Call {
-	_c.Call.Return(pluginPriority)
+func (_c *MockPlugin_Priority_Call) Return(priority Priority) *MockPlugin_Priority_Call {
+	_c.Call.Return(priority)
 	return _c
 }
 
-func (_c *MockPlugin_Priority_Call) RunAndReturn(run func() PluginPriority) *MockPlugin_Priority_Call {
+func (_c *MockPlugin_Priority_Call) RunAndReturn(run func() Priority) *MockPlugin_Priority_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2137,7 +2137,7 @@ func (_c *MockStore_DequeueStep_Call) RunAndReturn(run func(ctx context.Context,
 }
 
 // EnqueueStep provides a mock function for the type MockStore
-func (_mock *MockStore) EnqueueStep(ctx context.Context, instanceID int64, stepID *int64, priority int, delay time.Duration) error {
+func (_mock *MockStore) EnqueueStep(ctx context.Context, instanceID int64, stepID *int64, priority Priority, delay time.Duration) error {
 	ret := _mock.Called(ctx, instanceID, stepID, priority, delay)
 
 	if len(ret) == 0 {
@@ -2145,7 +2145,7 @@ func (_mock *MockStore) EnqueueStep(ctx context.Context, instanceID int64, stepI
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, *int64, int, time.Duration) error); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, *int64, Priority, time.Duration) error); ok {
 		r0 = returnFunc(ctx, instanceID, stepID, priority, delay)
 	} else {
 		r0 = ret.Error(0)
@@ -2162,13 +2162,13 @@ type MockStore_EnqueueStep_Call struct {
 //   - ctx context.Context
 //   - instanceID int64
 //   - stepID *int64
-//   - priority int
+//   - priority Priority
 //   - delay time.Duration
 func (_e *MockStore_Expecter) EnqueueStep(ctx interface{}, instanceID interface{}, stepID interface{}, priority interface{}, delay interface{}) *MockStore_EnqueueStep_Call {
 	return &MockStore_EnqueueStep_Call{Call: _e.mock.On("EnqueueStep", ctx, instanceID, stepID, priority, delay)}
 }
 
-func (_c *MockStore_EnqueueStep_Call) Run(run func(ctx context.Context, instanceID int64, stepID *int64, priority int, delay time.Duration)) *MockStore_EnqueueStep_Call {
+func (_c *MockStore_EnqueueStep_Call) Run(run func(ctx context.Context, instanceID int64, stepID *int64, priority Priority, delay time.Duration)) *MockStore_EnqueueStep_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -2182,9 +2182,9 @@ func (_c *MockStore_EnqueueStep_Call) Run(run func(ctx context.Context, instance
 		if args[2] != nil {
 			arg2 = args[2].(*int64)
 		}
-		var arg3 int
+		var arg3 Priority
 		if args[3] != nil {
-			arg3 = args[3].(int)
+			arg3 = args[3].(Priority)
 		}
 		var arg4 time.Duration
 		if args[4] != nil {
@@ -2206,7 +2206,7 @@ func (_c *MockStore_EnqueueStep_Call) Return(err error) *MockStore_EnqueueStep_C
 	return _c
 }
 
-func (_c *MockStore_EnqueueStep_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, stepID *int64, priority int, delay time.Duration) error) *MockStore_EnqueueStep_Call {
+func (_c *MockStore_EnqueueStep_Call) RunAndReturn(run func(ctx context.Context, instanceID int64, stepID *int64, priority Priority, delay time.Duration) error) *MockStore_EnqueueStep_Call {
 	_c.Call.Return(run)
 	return _c
 }

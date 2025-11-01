@@ -40,7 +40,7 @@ func Test_notifyJoinSteps_Ready_NoPending_Enqueues(t *testing.T) {
 	store.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s != nil && s.InstanceID == instanceID && s.StepName == "J" && s.StepType == StepTypeJoin && s.Status == StepStatusPending
 	})).Return(nil)
-	store.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.AnythingOfType("*int64"), 0, timeZero()).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.AnythingOfType("*int64"), PriorityNormal, timeZero()).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, instanceID, mock.AnythingOfType("*int64"), EventJoinReady, mock.Anything).Return(nil).Maybe()
 
 	err := engine.notifyJoinSteps(ctx, instanceID, "A", true)
@@ -102,7 +102,7 @@ func Test_notifyJoinStepsForStep_Ready_Enqueues(t *testing.T) {
 	store.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.StepName == "J" && s.Status == StepStatusPending
 	})).Return(nil)
-	store.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.AnythingOfType("*int64"), 0, timeZero()).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, instanceID, mock.AnythingOfType("*int64"), PriorityNormal, timeZero()).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, instanceID, mock.AnythingOfType("*int64"), EventJoinReady, mock.Anything).Return(nil).Maybe()
 
 	err := engine.notifyJoinStepsForStep(ctx, instanceID, "J", "A", true)

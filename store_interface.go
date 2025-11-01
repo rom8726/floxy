@@ -35,7 +35,7 @@ type Store interface {
 		ctx context.Context,
 		instanceID int64,
 		stepID *int64,
-		priority int,
+		priority Priority,
 		delay time.Duration,
 	) error
 	UpdateStepCompensationRetry(

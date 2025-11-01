@@ -123,7 +123,7 @@ func Test_executeCompensationStep_HandlerFails_WithRetry(t *testing.T) {
 
 	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil)
 	store.EXPECT().UpdateStepCompensationRetry(mock.Anything, step.ID, 1, StepStatusCompensation).Return(nil)
-	store.EXPECT().EnqueueStep(mock.Anything, step.InstanceID, &step.ID, 0, mock.Anything).Return(nil)
+	store.EXPECT().EnqueueStep(mock.Anything, step.InstanceID, &step.ID, PriorityHigh, mock.Anything).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, step.InstanceID, &step.ID, EventStepFailed, mock.Anything).Return(nil).Maybe()
 
 	instance := &WorkflowInstance{ID: step.InstanceID, WorkflowID: def.ID}
