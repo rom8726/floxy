@@ -108,7 +108,7 @@ func (engine *Engine) shouldLogSkip(key string) bool {
 func (engine *Engine) RegisterHandler(handler StepHandler) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	engine.handlers[handler.Name()] = handler
+	engine.handlers[handler.Name()] = wrapProcessPanicHandler(handler)
 }
 
 func (engine *Engine) RegisterPlugin(plugin Plugin) {
