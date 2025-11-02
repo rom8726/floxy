@@ -11,6 +11,7 @@ floxy means "flow" + "flux" + "tiny".
 ## Table of Contents
 
 - [Features](#features)
+- [Ecosystem](#ecosystem)
 - [Why Floxy?](#why-floxy)
   - [1. Lightweight, Not Heavyweight](#1-lightweight-not-heavyweight)
   - [2. Pragmatic by Design](#2-pragmatic-by-design)
