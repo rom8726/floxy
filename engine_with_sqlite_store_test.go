@@ -1,0 +1,178 @@
+package floxy
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// Handlers are reused from engine_with_in_memory_store_test.go:
+// - ValidateHandler
+// - ProcessPaymentHandler
+// - SendNotificationHandler
+// - UpdateInventoryHandler
+// - SkipInventoryHandler
+// - FinalizeOrderHandler
+// - ReserveResourceHandler
+// - ProcessResourceHandler
+// - ReleaseResourceHandler
+// - CleanupResourceHandler
+
+func newSQLiteStoreForTest(t *testing.T) *SQLiteStore {
+	store, err := NewSQLiteInMemoryStore()
+	require.NoError(t, err)
+	return store
+}
+
+func TestSQLiteStoreWorkflowSimple(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteStoreForTest(t)
+	// Use simple no-op tx manager
+	txManager := NewMemoryTxManager()
+
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
+	defer engine.Shutdown()
+
+	engine.RegisterHandler(&ValidateHandler{})
+	engine.RegisterHandler(&ProcessPaymentHandler{})
+	engine.RegisterHandler(&FinalizeOrderHandler{})
+
+	workflowDef, err := NewBuilder("order-simple", 1).
+		Step("validate-order", "validate").
+		Step("process-payment", "process-payment").
+		Then("finalize-order", "finalize-order").
+		Build()
+	require.NoError(t, err)
+
+	require.NoError(t, engine.RegisterWorkflow(ctx, workflowDef))
+
+	workerPool := NewWorkerPool(engine, 2, 25*time.Millisecond)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	workerPool.Start(ctx)
+
+	input := json.RawMessage(`{"order_id":"1","amount":10.5}`)
+	instanceID, err := engine.Start(ctx, workflowDef.ID, input)
+	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+	workerPool.Stop()
+	cancel()
+
+	inst, err := store.GetInstance(context.Background(), instanceID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, inst.Status)
+
+	steps, err := store.GetStepsByInstance(context.Background(), instanceID)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(steps), 3)
+}
+
+func TestSQLiteStoreQueueOperations(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteStoreForTest(t)
+
+	instanceID := int64(1)
+	stepID := int64(10)
+	// enqueue
+	require.NoError(t, store.EnqueueStep(ctx, instanceID, &stepID, PriorityNormal, 0))
+	// dequeue
+	item, err := store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	assert.Equal(t, instanceID, item.InstanceID)
+	require.NotNil(t, item.StepID)
+	assert.Equal(t, stepID, *item.StepID)
+	// remove
+	require.NoError(t, store.RemoveFromQueue(ctx, item.ID))
+	// next dequeue returns nil
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+}
+
+func TestSQLiteStoreEvents(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteStoreForTest(t)
+
+	instanceID := int64(1)
+	stepID := int64(10)
+	require.NoError(t, store.LogEvent(ctx, instanceID, &stepID, "test-event", map[string]any{"k": "v"}))
+	events, err := store.GetWorkflowEvents(ctx, instanceID)
+	require.NoError(t, err)
+	found := false
+	for _, ev := range events {
+		if ev.EventType == "test-event" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should find test-event among events")
+}
+
+func TestSQLiteStoreRollbackWithCompensation(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteStoreForTest(t)
+	txManager := NewMemoryTxManager()
+
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
+	defer engine.Shutdown()
+
+	engine.RegisterHandler(&ReserveResourceHandler{})
+	engine.RegisterHandler(&ProcessResourceHandler{}) // this one fails to trigger compensation
+	engine.RegisterHandler(&ReleaseResourceHandler{})
+	engine.RegisterHandler(&CleanupResourceHandler{})
+
+	workflowDef, err := NewBuilder("resource-workflow", 1).
+		Step("reserve-resource", "reserve-resource").
+		OnFailure("release-resource", "release-resource", WithStepMaxRetries(1)).
+		Step("process-resource", "process-resource").
+		Build()
+	require.NoError(t, err)
+
+	require.NoError(t, engine.RegisterWorkflow(ctx, workflowDef))
+
+	workerPool := NewWorkerPool(engine, 2, 25*time.Millisecond)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	workerPool.Start(ctx)
+
+	input := json.RawMessage(`{"resource_id": "RES-1"}`)
+	instanceID, err := engine.Start(ctx, workflowDef.ID, input)
+	require.NoError(t, err)
+
+	time.Sleep(2 * time.Second)
+	workerPool.Stop()
+	cancel()
+
+	inst, err := store.GetInstance(context.Background(), instanceID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusFailed, inst.Status)
+
+	steps, err := store.GetStepsByInstance(context.Background(), instanceID)
+	require.NoError(t, err)
+	// reserve should be rolled back by compensation; process should be rolled back on failure
+	var reserve, process *WorkflowStep
+	for i := range steps {
+		if steps[i].StepName == "reserve-resource" {
+			reserve = &steps[i]
+		}
+		if steps[i].StepName == "process-resource" {
+			process = &steps[i]
+		}
+	}
+	require.NotNil(t, reserve)
+	assert.Equal(t, StepStatusRolledBack, reserve.Status)
+	require.NotNil(t, process)
+	assert.Equal(t, StepStatusRolledBack, process.Status)
+}
