@@ -462,7 +462,7 @@ FOR UPDATE`
 		}
 	}
 
-	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+	isReady := checkJoinReady(waitingFor, completed, failed, strategy)
 
 	const updateQuery = `
 UPDATE workflows.workflow_join_state
@@ -562,7 +562,7 @@ FOR UPDATE`
 	waitingFor = append(waitingFor, stepToAdd)
 
 	// Recalculate isReady based on updated waitingFor
-	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+	isReady := checkJoinReady(waitingFor, completed, failed, strategy)
 
 	const updateQuery = `
 UPDATE workflows.workflow_join_state
@@ -665,7 +665,7 @@ LIMIT 1`
 	}
 
 	// Recalculate isReady based on updated waitingFor, completed, and failed
-	isReady := store.checkJoinReady(waitingFor, completed, failed, strategy)
+	isReady := checkJoinReady(waitingFor, completed, failed, strategy)
 
 	const updateQuery = `
 UPDATE workflows.workflow_join_state
@@ -681,16 +681,6 @@ WHERE instance_id = $6 AND join_step_name = $7`
 	)
 
 	return err
-}
-
-func (store *StoreImpl) checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
-	if strategy == JoinStrategyAny {
-		return len(completed) > 0 || len(failed) > 0
-	}
-
-	totalProcessed := len(completed) + len(failed)
-
-	return totalProcessed >= len(waitingFor)
 }
 
 func (store *StoreImpl) UpdateStepCompensationRetry(
@@ -1426,4 +1416,14 @@ func (store *StoreImpl) getExecutor(ctx context.Context) Tx {
 	}
 
 	return store.db
+}
+
+func checkJoinReady(waitingFor, completed, failed []string, strategy JoinStrategy) bool {
+	if strategy == JoinStrategyAny {
+		return len(completed) > 0 || len(failed) > 0
+	}
+
+	totalProcessed := len(completed) + len(failed)
+
+	return totalProcessed >= len(waitingFor)
 }
