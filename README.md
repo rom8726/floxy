@@ -8,6 +8,8 @@ A Go library for creating and executing workflows with a custom DSL. Implements 
 
 floxy means "flow" + "flux" + "tiny".
 
+<img src="docs/floxy_logo.png" width="500">
+
 ## Table of Contents
 
 - [Features](#features)
