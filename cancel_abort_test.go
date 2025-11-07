@@ -63,9 +63,9 @@ func TestCancelWorkflow(t *testing.T) {
 	_, _ = engine.ExecuteNext(ctx, "worker1")
 
 	// Check final status - should be cancelled
-	status, err := engine.GetStatus(ctx, instanceID)
+	finalStatus, err := engine.GetStatus(ctx, instanceID)
 	require.NoError(t, err)
-	assert.Equal(t, StatusCancelled, status)
+	assert.Equal(t, StatusCancelled, finalStatus)
 
 	// Check steps
 	steps, err := engine.GetSteps(ctx, instanceID)

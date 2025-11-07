@@ -99,8 +99,15 @@ func (s *SQLiteStore) CreateInstance(ctx context.Context, workflowID string, inp
 }
 
 func (s *SQLiteStore) UpdateInstanceStatus(ctx context.Context, instanceID int64, status WorkflowStatus, output json.RawMessage, errMsg *string) error {
-	q := `UPDATE workflow_instances SET status=?, output=?, error=?, updated_at=? WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, time.Now(), instanceID)
+	now := time.Now()
+	// Update completed_at when status is completed, failed, or cancelled
+	// Update started_at when status is running and started_at is NULL
+	q := `UPDATE workflow_instances 
+		SET status=?, output=?, error=?, updated_at=?,
+			completed_at = CASE WHEN ? IN ('completed', 'failed', 'cancelled') THEN ? ELSE completed_at END,
+			started_at = CASE WHEN started_at IS NULL AND ? = 'running' THEN ? ELSE started_at END
+		WHERE id=?`
+	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, now, status, now, status, now, instanceID)
 	return err
 }
 
@@ -150,8 +157,17 @@ func (s *SQLiteStore) CreateStep(ctx context.Context, step *WorkflowStep) error 
 }
 
 func (s *SQLiteStore) UpdateStep(ctx context.Context, stepID int64, status StepStatus, output json.RawMessage, errMsg *string) error {
-	q := `UPDATE workflow_steps SET status=?, output=?, error=?, completed_at=CASE WHEN ? IN ('completed','rolled_back','failed') THEN ? ELSE completed_at END WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, status, time.Now(), stepID)
+	now := time.Now()
+	// Update completed_at when status is completed, failed, skipped, or rolled_back
+	// Update started_at when status is running and started_at is NULL
+	// Increment retry_count when status is failed
+	q := `UPDATE workflow_steps 
+		SET status=?, output=?, error=?,
+			completed_at = CASE WHEN ? IN ('completed', 'failed', 'skipped', 'rolled_back') THEN ? ELSE completed_at END,
+			started_at = CASE WHEN started_at IS NULL AND ? = 'running' THEN ? ELSE started_at END,
+			retry_count = CASE WHEN ? = 'failed' THEN retry_count + 1 ELSE retry_count END
+		WHERE id=?`
+	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, status, now, status, now, status, stepID)
 	return err
 }
 
