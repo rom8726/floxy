@@ -45,7 +45,7 @@ floxy means "flow" + "flux" + "tiny".
 - **Priority Aging**: Prevents queue starvation by gradually increasing step priority as waiting time increases
 - **PostgreSQL Storage**: Persistent workflow state and event logging
 - **SQLite Storage**: In-memory and persistent storage (unstable)
-- **HTTP API**: API for starting, pausing, resuming, and canceling workflows
+- **HTTP API**: API for canceling workflows, dlq, human decision, etc.
 - **Integration Tests**: Fully integrated integration tests using testcontainers
 - **Migrations**: Embedded database migrations with `go:embed`
 
