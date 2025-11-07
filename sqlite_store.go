@@ -533,7 +533,33 @@ func (s *SQLiteStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([
 	return s.GetStepsByInstance(ctx, instanceID)
 }
 func (s *SQLiteStore) GetActiveStepsForUpdate(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
-	return s.GetStepsByInstance(ctx, instanceID)
+	q := `SELECT id, instance_id, step_name, step_type, status, input, output, error,
+		retry_count, max_retries, compensation_retry_count, idempotency_key,
+		started_at, completed_at, created_at
+		FROM workflow_steps
+		WHERE instance_id=? AND status IN ('pending', 'running', 'waiting_decision')
+		ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, q, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	steps := make([]WorkflowStep, 0)
+	for rows.Next() {
+		var step WorkflowStep
+		err := rows.Scan(
+			&step.ID, &step.InstanceID, &step.StepName, &step.StepType,
+			&step.Status, &step.Input, &step.Output, &step.Error,
+			&step.RetryCount, &step.MaxRetries, &step.CompensationRetryCount,
+			&step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	return steps, rows.Err()
 }
 
 func (s *SQLiteStore) CreateCancelRequest(ctx context.Context, req *WorkflowCancelRequest) error {
