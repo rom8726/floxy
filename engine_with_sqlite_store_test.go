@@ -3,6 +3,7 @@ package floxy
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -234,4 +235,69 @@ func TestSQLiteStorePersistence(t *testing.T) {
 	require.NotNil(t, inst)
 	assert.Equal(t, instanceID, inst.ID)
 	assert.Equal(t, workflowDef.ID, inst.WorkflowID)
+}
+
+func TestSQLiteStoreAgingRateValidation(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteStoreForTest(t)
+
+	// Test NaN - should be clamped to 0.0
+	store.SetAgingRate(math.NaN())
+	store.SetAgingEnabled(true)
+	// Should not cause SQL error when dequeuing
+	item, err := store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item) // No items in queue, but no SQL error
+
+	// Test positive infinity - should be clamped to 0.0
+	store.SetAgingRate(math.Inf(1))
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	// Test negative infinity - should be clamped to 0.0
+	store.SetAgingRate(math.Inf(-1))
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	// Test negative value - should be clamped to 0.0
+	store.SetAgingRate(-10.0)
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	// Test value above maximum - should be clamped to MaxAgingRate (100.0)
+	store.SetAgingRate(1000.0)
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	// Test valid values - should work without clamping
+	store.SetAgingRate(0.5)
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	store.SetAgingRate(50.0)
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	store.SetAgingRate(100.0)
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	assert.Nil(t, item)
+
+	// Test that aging actually works with valid values
+	store.SetAgingRate(0.5)
+	instanceID := int64(1)
+	stepID := int64(10)
+	require.NoError(t, store.EnqueueStep(ctx, instanceID, &stepID, PriorityNormal, 0))
+
+	// Dequeue should work with aging enabled
+	item, err = store.DequeueStep(ctx, "worker-1")
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	assert.Equal(t, instanceID, item.InstanceID)
 }

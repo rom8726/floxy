@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -14,6 +15,13 @@ import (
 
 // Ensure interface compliance
 var _ Store = (*SQLiteStore)(nil)
+
+const (
+	// MinAgingRate is the minimum allowed value for aging rate (0.0 = no aging)
+	MinAgingRate = 0.0
+	// MaxAgingRate is the maximum allowed value for aging rate to prevent excessive priority boosts
+	MaxAgingRate = 100.0
+)
 
 // SQLiteStore provides a lightweight Store backed by SQLite.
 // It implements only the subset of capabilities required by the SQLite tests.
@@ -73,7 +81,30 @@ func newSQLiteStore(dsn string, isInMemory bool) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) SetAgingEnabled(enabled bool) { s.agingEnabled = enabled }
-func (s *SQLiteStore) SetAgingRate(rate float64)    { s.agingRate = rate }
+
+// SetAgingRate sets the aging rate for queue priority adjustment.
+// The rate is clamped to [MinAgingRate, MaxAgingRate] to prevent SQL injection
+// and ensure valid SQL expressions. NaN and Inf values are clamped to 0.0.
+func (s *SQLiteStore) SetAgingRate(rate float64) {
+	s.agingRate = clampAgingRate(rate)
+}
+
+// clampAgingRate ensures the aging rate is within valid bounds.
+// Returns 0.0 for NaN/Inf, and clamps to [MinAgingRate, MaxAgingRate].
+func clampAgingRate(rate float64) float64 {
+	// Handle NaN and Inf
+	if math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return MinAgingRate
+	}
+	// Clamp to valid range
+	if rate < MinAgingRate {
+		return MinAgingRate
+	}
+	if rate > MaxAgingRate {
+		return MaxAgingRate
+	}
+	return rate
+}
 
 // Close closes the database connection.
 // It's recommended to call this method when the store is no longer needed,
@@ -261,8 +292,10 @@ func (s *SQLiteStore) DequeueStep(ctx context.Context, workerID string) (*QueueI
 
 	orderExpr := "priority"
 	if s.agingEnabled {
+		// Clamp aging rate to ensure valid SQL expression (defense in depth)
+		rate := clampAgingRate(s.agingRate)
 		// effective_priority = min(100, priority + floor(wait_seconds * rate))
-		orderExpr = fmt.Sprintf("MIN(100, priority + CAST(((strftime('%%s','now') - strftime('%%s', scheduled_at)) * %.6f) AS INTEGER))", s.agingRate)
+		orderExpr = fmt.Sprintf("MIN(100, priority + CAST(((strftime('%%s','now') - strftime('%%s', scheduled_at)) * %.6f) AS INTEGER))", rate)
 	}
 
 	row := tx.QueryRowContext(ctx, fmt.Sprintf(`
