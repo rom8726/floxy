@@ -14,14 +14,15 @@ func TestRollbackConditionActualFailureInParallelBranches(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -114,14 +115,15 @@ func TestRollbackConditionActualFailureInParallelBranchesWithFailure(t *testing.
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers

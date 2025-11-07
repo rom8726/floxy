@@ -15,14 +15,14 @@ func TestCancelWorkflow(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -98,14 +98,14 @@ func TestCancelWorkflowTerminalState(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -155,14 +155,14 @@ func TestAbortWorkflow(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -238,14 +238,14 @@ func TestAbortWorkflowTerminalState(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -291,14 +291,14 @@ func TestCancelWorkflowWithCompensation(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers

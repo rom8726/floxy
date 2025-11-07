@@ -16,14 +16,14 @@ func TestCancelWorkflowWithParallelSteps(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -143,14 +143,14 @@ func TestAbortWorkflowWithParallelSteps(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers

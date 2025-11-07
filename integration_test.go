@@ -7,72 +7,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-func setupTestDatabase(t *testing.T) (testcontainers.Container, *pgxpool.Pool) {
-	t.Helper()
-
-	ctx := context.Background()
-
-	// Start PostgreSQL container
-	postgresContainer, err := postgres.Run(ctx,
-		"postgres:17-alpine",
-		postgres.WithDatabase("floxy"),
-		postgres.WithUsername("user"),
-		postgres.WithPassword("password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
-	require.NoError(t, err)
-
-	// Get connection string
-	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-
-	// Wait a bit for PostgreSQL to be fully ready
-	time.Sleep(2 * time.Second)
-
-	// Create connection pool with retry
-	var pool *pgxpool.Pool
-	for i := 0; i < 5; i++ {
-		pool, err = pgxpool.New(ctx, connStr)
-		if err == nil {
-			break
-		}
-		if i < 4 {
-			time.Sleep(time.Duration(i+1) * time.Second)
-		}
-	}
-	require.NoError(t, err)
-
-	// Run migrations
-	err = RunMigrations(ctx, pool)
-	require.NoError(t, err)
-
-	return postgresContainer, pool
-}
 
 func TestIntegration_DataPipeline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -150,14 +102,15 @@ func TestIntegration_Ecommerce(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -232,14 +185,15 @@ func TestIntegration_Microservices(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -332,14 +286,15 @@ func TestIntegration_SavePointDemo(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -423,14 +378,15 @@ func TestIntegration_RollbackDemo(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -533,14 +489,15 @@ func TestIntegration_Condition__true(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -608,14 +565,15 @@ func TestIntegration_Condition__false(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -683,14 +641,15 @@ func TestIntegration_Condition_Logic(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -802,14 +761,15 @@ func TestIntegration_ForkWithNestedConditions(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool, WithEngineCancelInterval(time.Minute))
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+		WithEngineCancelInterval(time.Minute),
+	)
 	defer engine.Shutdown()
 
 	// Register handler
@@ -894,39 +854,7 @@ func TestIntegration_ForkWithNestedConditions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusCompleted, status, "Workflow should be completed")
 
-	// Query database directly to check that check step completed last
-	const query = `
-		SELECT step_name, completed_at 
-		FROM workflows.workflow_steps 
-		WHERE instance_id = $1 AND status = 'completed' AND completed_at IS NOT NULL
-		ORDER BY completed_at DESC 
-		LIMIT 1`
-
-	var stepName string
-	var completedAt time.Time
-
-	err = pool.QueryRow(ctx, query, instanceID).Scan(&stepName, &completedAt)
-	require.NoError(t, err, "Should be able to query completed steps")
-
-	assert.Equal(t, "check", stepName, "The check step should have completed last")
-
-	// Verify that check step completed after all other steps
-	const countQuery = `
-		SELECT COUNT(*) 
-		FROM workflows.workflow_steps 
-		WHERE instance_id = $1 
-		  AND status = 'completed' 
-		  AND completed_at IS NOT NULL 
-		  AND completed_at > $2
-		  AND step_name != 'check'`
-
-	var countAfterCheck int
-	err = pool.QueryRow(ctx, countQuery, instanceID, completedAt).Scan(&countAfterCheck)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, countAfterCheck, "No steps should have completed after the check step")
-
-	// Additional verification: get all steps and verify check is last
+	// Get all steps and verify check is last
 	steps, err := engine.GetSteps(ctx, instanceID)
 	require.NoError(t, err)
 
