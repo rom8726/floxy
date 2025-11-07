@@ -44,6 +44,9 @@ floxy means "flow" + "flux" + "tiny".
 - **Distributed Mode**: Microservices can register only their handlers; steps without local handlers are returned to queue for other services to process
 - **Priority Aging**: Prevents queue starvation by gradually increasing step priority as waiting time increases
 - **PostgreSQL Storage**: Persistent workflow state and event logging
+- **SQLite Storage**: In-memory and persistent storage (unstable)
+- **HTTP API**: API for starting, pausing, resuming, and canceling workflows
+- **Integration Tests**: Fully integrated integration tests using testcontainers
 - **Migrations**: Embedded database migrations with `go:embed`
 
 PlantUML diagrams of compensations flow: [DIAGRAMS](docs/SAGA_COMPENSATION_DIAGRAMS.md)
