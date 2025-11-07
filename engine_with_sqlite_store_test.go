@@ -176,3 +176,62 @@ func TestSQLiteStoreRollbackWithCompensation(t *testing.T) {
 	require.NotNil(t, process)
 	assert.Equal(t, StepStatusRolledBack, process.Status)
 }
+
+func TestSQLiteStorePersistence(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a temporary file for the database
+	tmpFile := t.TempDir() + "/test.db"
+
+	// Create a persistent SQLite store
+	store, err := NewSQLiteStore(tmpFile)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create a workflow definition
+	workflowDef := &WorkflowDefinition{
+		ID:      "test-workflow-1",
+		Name:    "test-workflow",
+		Version: 1,
+		Definition: GraphDefinition{
+			Steps: map[string]*StepDefinition{
+				"step1": {Type: "test", Name: "step1"},
+			},
+		},
+	}
+
+	// Save workflow definition
+	err = store.SaveWorkflowDefinition(ctx, workflowDef)
+	require.NoError(t, err)
+
+	// Create an instance
+	input := json.RawMessage(`{"test": "data"}`)
+	instance, err := store.CreateInstance(ctx, workflowDef.ID, input)
+	require.NoError(t, err)
+	require.NotNil(t, instance)
+
+	instanceID := instance.ID
+
+	// Close the store
+	err = store.Close()
+	require.NoError(t, err)
+
+	// Reopen the store with the same file
+	store2, err := NewSQLiteStore(tmpFile)
+	require.NoError(t, err)
+	defer store2.Close()
+
+	// Verify that the workflow definition still exists
+	def, err := store2.GetWorkflowDefinition(ctx, workflowDef.ID)
+	require.NoError(t, err)
+	require.NotNil(t, def)
+	assert.Equal(t, workflowDef.ID, def.ID)
+	assert.Equal(t, workflowDef.Name, def.Name)
+
+	// Verify that the instance still exists
+	inst, err := store2.GetInstance(ctx, instanceID)
+	require.NoError(t, err)
+	require.NotNil(t, inst)
+	assert.Equal(t, instanceID, inst.ID)
+	assert.Equal(t, workflowDef.ID, inst.WorkflowID)
+}

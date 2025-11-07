@@ -13,7 +13,10 @@ var useSQLite = true
 func setupTestStore(t *testing.T) (Store, TxManager, func()) {
 	t.Helper()
 
-	store, err := NewSQLiteInMemoryStore()
+	// Create a temporary file for the database
+	tmpFile := t.TempDir() + "/test.db"
+
+	store, err := NewSQLiteStore(tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create SQLite store: %v", err)
 	}

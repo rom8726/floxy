@@ -25,21 +25,44 @@ type SQLiteStore struct {
 	mu           sync.Mutex // serialize critical sections for SQLite
 }
 
+// NewSQLiteStore creates a persistent SQLite database stored in a file and initializes schema.
+// The filepath parameter specifies the path to the SQLite database file.
+// If the file doesn't exist, it will be created automatically.
+func NewSQLiteStore(filepath string) (*SQLiteStore, error) {
+	if filepath == "" {
+		return nil, fmt.Errorf("filepath cannot be empty")
+	}
+	return newSQLiteStore(filepath, false)
+}
+
 // NewSQLiteInMemoryStore creates an in-memory SQLite database and initializes schema.
+// This is useful for testing. For production use, prefer NewSQLiteStore with a file path.
 func NewSQLiteInMemoryStore() (*SQLiteStore, error) {
-	// Use a unique in-memory database per store to avoid cross-test leakage
-	dsn := ":memory:"
+	return newSQLiteStore(":memory:", true)
+}
+
+// newSQLiteStore is an internal helper function that creates a SQLite store.
+// isInMemory indicates whether this is an in-memory database.
+func newSQLiteStore(dsn string, isInMemory bool) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// pragma for better concurrency in tests
+
+	// Configure SQLite pragmas for better performance and reliability
 	_, _ = db.Exec("PRAGMA journal_mode=WAL;")
 	_, _ = db.Exec("PRAGMA foreign_keys=ON;")
 	_, _ = db.Exec("PRAGMA busy_timeout=5000;")
-	// single connection to keep :memory: consistent and avoid locks
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+
+	if isInMemory {
+		// Single connection for in-memory databases to avoid locks
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	} else {
+		// For persistent databases, allow multiple connections for better concurrency
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(5)
+	}
 
 	store := &SQLiteStore{db: db, agingEnabled: true, agingRate: 0.5}
 	if err := RunSQLiteMigrations(context.Background(), db); err != nil {
@@ -51,6 +74,16 @@ func NewSQLiteInMemoryStore() (*SQLiteStore, error) {
 
 func (s *SQLiteStore) SetAgingEnabled(enabled bool) { s.agingEnabled = enabled }
 func (s *SQLiteStore) SetAgingRate(rate float64)    { s.agingRate = rate }
+
+// Close closes the database connection.
+// It's recommended to call this method when the store is no longer needed,
+// especially for persistent SQLite stores.
+func (s *SQLiteStore) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
 
 // Definitions
 func (s *SQLiteStore) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
