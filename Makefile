@@ -24,6 +24,11 @@ test: ## Run all tests
 	@go test -cover -coverprofile=coverage.out -v ./...
 	@go tool cover -html=coverage.out -o coverage.html
 
+.PHONY: test.sqlite
+test.sqlite: ## Run all tests with SQLite store
+	@go test -tags sqlite -cover -coverprofile=coverage.out -v ./...
+	@go tool cover -html=coverage.out -o coverage.html
+
 .PHONY: test.short
 test.short: ## Run short unit tests
 	@go test -short -cover -coverprofile=coverage.out -v ./...

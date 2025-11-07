@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,14 +16,14 @@ func TestDLQ_BasicWorkflowFailure(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -68,7 +67,7 @@ func TestDLQ_BasicWorkflowFailure(t *testing.T) {
 	assert.Equal(t, StatusDLQ, status, "Workflow should be in DLQ state when DLQ mode is enabled")
 
 	// Check that DLQ record was created
-	dlqRecords, err := getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err := getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	require.Len(t, dlqRecords, 1, "Expected one DLQ record")
 
@@ -94,14 +93,14 @@ func TestDLQ_RequeueFromDLQ(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -130,25 +129,39 @@ func TestDLQ_RequeueFromDLQ(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	// Manually fail step2 and create DLQ record
-	_, err = pool.Exec(ctx, `
-		UPDATE workflows.workflow_steps 
-		SET status = 'failed', error = 'Manual failure for testing'
-		WHERE instance_id = $1 AND step_name = 'step2'`, instanceID)
+	// Get step2 to manually fail it and create DLQ record
+	steps, err := store.GetStepsByInstance(ctx, instanceID)
+	require.NoError(t, err)
+	var step2 *WorkflowStep
+	for i := range steps {
+		if steps[i].StepName == "step2" {
+			step2 = &steps[i]
+			break
+		}
+	}
+	require.NotNil(t, step2, "step2 should exist")
+
+	// Manually fail step2
+	errMsg := "Manual failure for testing"
+	err = store.UpdateStep(ctx, step2.ID, StepStatusFailed, nil, &errMsg)
 	require.NoError(t, err)
 
 	// Create DLQ record manually
-	_, err = pool.Exec(ctx, `
-		INSERT INTO workflows.workflow_dlq 
-		(instance_id, workflow_id, step_id, step_name, step_type, input, error, reason)
-		SELECT $1, $2, id, 'step2', 'task', input, 'Manual failure for testing', 'manual test'
-		FROM workflows.workflow_steps 
-		WHERE instance_id = $1 AND step_name = 'step2'
-		LIMIT 1`, instanceID, "dlq_requeue_test-v1")
+	dlqRecord := &DeadLetterRecord{
+		InstanceID: instanceID,
+		WorkflowID: "dlq_requeue_test-v1",
+		StepID:     step2.ID,
+		StepName:   "step2",
+		StepType:   string(StepTypeTask),
+		Input:      step2.Input,
+		Error:      &errMsg,
+		Reason:     "manual test",
+	}
+	err = store.CreateDeadLetterRecord(ctx, dlqRecord)
 	require.NoError(t, err)
 
 	// Get DLQ record
-	dlqRecords, err := getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err := getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	require.Len(t, dlqRecords, 1)
 
@@ -174,12 +187,12 @@ func TestDLQ_RequeueFromDLQ(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Verify DLQ record was deleted
-	dlqRecords, err = getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err = getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	assert.Len(t, dlqRecords, 0, "DLQ record should be deleted after requeue")
 
 	// Check steps
-	steps, err := engine.GetSteps(ctx, instanceID)
+	steps, err = engine.GetSteps(ctx, instanceID)
 	require.NoError(t, err)
 
 	stepStatuses := make(map[string]StepStatus)
@@ -197,14 +210,14 @@ func TestDLQ_RequeueWithNewInput(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -233,26 +246,39 @@ func TestDLQ_RequeueWithNewInput(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	// Manually fail the retry step by marking it as failed
-	// This simulates a DLQ scenario
-	_, err = pool.Exec(ctx, `
-		UPDATE workflows.workflow_steps 
-		SET status = 'failed', error = 'Simulated failure'
-		WHERE instance_id = $1 AND step_name = 'retry'`, instanceID)
+	// Get retry step to manually fail it and create DLQ record
+	steps, err := store.GetStepsByInstance(ctx, instanceID)
+	require.NoError(t, err)
+	var retryStep *WorkflowStep
+	for i := range steps {
+		if steps[i].StepName == "retry" {
+			retryStep = &steps[i]
+			break
+		}
+	}
+	require.NotNil(t, retryStep, "retry step should exist")
+
+	// Manually fail the retry step
+	errMsg := "Simulated failure"
+	err = store.UpdateStep(ctx, retryStep.ID, StepStatusFailed, nil, &errMsg)
 	require.NoError(t, err)
 
 	// Create DLQ record manually
-	_, err = pool.Exec(ctx, `
-		INSERT INTO workflows.workflow_dlq 
-		(instance_id, workflow_id, step_id, step_name, step_type, input, error, reason)
-		SELECT $1, $2, id, 'retry', 'task', input, 'Simulated failure', 'manual test'
-		FROM workflows.workflow_steps 
-		WHERE instance_id = $1 AND step_name = 'retry'
-		LIMIT 1`, instanceID, "dlq_newinput_test-v1")
+	dlqRecord := &DeadLetterRecord{
+		InstanceID: instanceID,
+		WorkflowID: "dlq_newinput_test-v1",
+		StepID:     retryStep.ID,
+		StepName:   "retry",
+		StepType:   string(StepTypeTask),
+		Input:      retryStep.Input,
+		Error:      &errMsg,
+		Reason:     "manual test",
+	}
+	err = store.CreateDeadLetterRecord(ctx, dlqRecord)
 	require.NoError(t, err)
 
 	// Get DLQ record
-	dlqRecords, err := getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err := getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	require.Len(t, dlqRecords, 1)
 
@@ -282,7 +308,7 @@ func TestDLQ_RequeueWithNewInput(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check steps - retry should now be completed with new input
-	steps, err := engine.GetSteps(ctx, instanceID)
+	steps, err = engine.GetSteps(ctx, instanceID)
 	require.NoError(t, err)
 
 	for _, step := range steps {
@@ -300,14 +326,14 @@ func TestDLQ_CompensationMaxRetriesExceeded(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -351,7 +377,7 @@ func TestDLQ_CompensationMaxRetriesExceeded(t *testing.T) {
 	assert.Equal(t, StatusFailed, status)
 
 	// Check that DLQ record was created due to compensation failure
-	dlqRecords, err := getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err := getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	require.Len(t, dlqRecords, 1, "Expected one DLQ record due to compensation failure")
 
@@ -367,14 +393,14 @@ func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	container, pool := setupTestDatabase(t)
-	t.Cleanup(func() {
-		pool.Close()
-		_ = container.Terminate(context.Background())
-	})
+	store, txManager, cleanup := setupTestStore(t)
+	t.Cleanup(cleanup)
 
 	ctx := context.Background()
-	engine := NewEngine(pool)
+	engine := NewEngine(nil,
+		WithEngineStore(store),
+		WithEngineTxManager(txManager),
+	)
 	defer engine.Shutdown()
 
 	// Register handlers
@@ -437,7 +463,7 @@ func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
 	assert.Equal(t, StatusDLQ, status, "Workflow should be in DLQ state when one branch fails")
 
 	// Check that DLQ record was created
-	dlqRecords, err := getDLQRecordsForInstance(ctx, pool, instanceID)
+	dlqRecords, err := getDLQRecordsForInstance(ctx, store, instanceID)
 	require.NoError(t, err)
 	require.Len(t, dlqRecords, 1, "Expected one DLQ record for the failing branch")
 
@@ -532,42 +558,21 @@ func TestDLQ_ForkJoinParallelFlow(t *testing.T) {
 }
 
 // Helper function to get DLQ records for an instance
-func getDLQRecordsForInstance(ctx context.Context, pool *pgxpool.Pool, instanceID int64) ([]DeadLetterRecord, error) {
-	const query = `
-		SELECT id, instance_id, workflow_id, step_id, step_name, step_type, 
-		       input, error, reason, created_at
-		FROM workflows.workflow_dlq
-		WHERE instance_id = $1
-		ORDER BY created_at DESC`
-
-	rows, err := pool.Query(ctx, query, instanceID)
+func getDLQRecordsForInstance(ctx context.Context, store Store, instanceID int64) ([]DeadLetterRecord, error) {
+	// Get all DLQ records and filter by instanceID
+	allRecords, _, err := store.ListDeadLetters(ctx, 0, 1000)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	records := make([]DeadLetterRecord, 0)
-	for rows.Next() {
-		var rec DeadLetterRecord
-		err := rows.Scan(
-			&rec.ID,
-			&rec.InstanceID,
-			&rec.WorkflowID,
-			&rec.StepID,
-			&rec.StepName,
-			&rec.StepType,
-			&rec.Input,
-			&rec.Error,
-			&rec.Reason,
-			&rec.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
+	for _, rec := range allRecords {
+		if rec.InstanceID == instanceID {
+			records = append(records, rec)
 		}
-		records = append(records, rec)
 	}
 
-	return records, rows.Err()
+	return records, nil
 }
 
 // Test handlers

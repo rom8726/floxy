@@ -717,15 +717,16 @@ func (engine *Engine) handleCancellation(
 			return fmt.Errorf("get workflow definition: %w", err)
 		}
 
+		// Get fresh steps after stopActiveSteps to ensure we have current statuses
 		steps, err := engine.store.GetStepsByInstance(ctx, instance.ID)
 		if err != nil {
 			return fmt.Errorf("get steps: %w", err)
 		}
 
+		// Create stepMap with pointers to actual step values, not copies
 		stepMap := make(map[string]*WorkflowStep)
-		for _, step := range steps {
-			step := step
-			stepMap[step.StepName] = &step
+		for i := range steps {
+			stepMap[steps[i].StepName] = &steps[i]
 		}
 
 		var lastCompletedStep *WorkflowStep
