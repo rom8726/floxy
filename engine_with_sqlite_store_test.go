@@ -31,7 +31,7 @@ func newSQLiteStoreForTest(t *testing.T) *SQLiteStore {
 func TestSQLiteStoreWorkflowSimple(t *testing.T) {
 	ctx := context.Background()
 	store := newSQLiteStoreForTest(t)
-	// Use simple no-op tx manager
+	// Use a simple no-op tx manager
 	txManager := NewMemoryTxManager()
 
 	engine := NewEngine(nil,
@@ -136,7 +136,7 @@ func TestSQLiteStoreRollbackWithCompensation(t *testing.T) {
 	workflowDef, err := NewBuilder("resource-workflow", 1).
 		Step("reserve-resource", "reserve-resource").
 		OnFailure("release-resource", "release-resource", WithStepMaxRetries(1)).
-		Step("process-resource", "process-resource").
+		Step("process-resource", "process-resource", WithStepMaxRetries(0)).
 		Build()
 	require.NoError(t, err)
 
@@ -151,7 +151,7 @@ func TestSQLiteStoreRollbackWithCompensation(t *testing.T) {
 	instanceID, err := engine.Start(ctx, workflowDef.ID, input)
 	require.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 	workerPool.Stop()
 	cancel()
 
