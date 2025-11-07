@@ -280,15 +280,14 @@ func (s *SQLiteStore) DequeueStep(ctx context.Context, workerID string) (*QueueI
 	}
 	// mark as attempted by worker
 	now := time.Now()
-now := time.Now()
-res, err := tx.ExecContext(ctx, `UPDATE queue SET attempted_at=?, attempted_by=? WHERE id=? AND attempted_by IS NULL`, now, workerID, qi.ID)
-if err != nil {
-	return nil, err
-}
-if rows, _ := res.RowsAffected(); rows == 0 {
-	// another worker claimed it; let caller retry
-	return nil, nil
-}
+	res, err := tx.ExecContext(ctx, `UPDATE queue SET attempted_at=?, attempted_by=? WHERE id=? AND attempted_by IS NULL`, now, workerID, qi.ID)
+	if err != nil {
+		return nil, err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		// another worker claimed it; let caller retry
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
