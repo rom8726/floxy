@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1274,4 +1275,264 @@ func TestEngine_ValidateDefinition_ComplexWorkflow(t *testing.T) {
 	err := engine.validateDefinition(definition)
 
 	assert.NoError(t, err)
+}
+
+// -- jitteredCooldown -------------------------------------------------------
+
+func Test_jitteredCooldown_BaseZero(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	engine.missingHandlerCooldown = 0
+	assert.Equal(t, time.Duration(0), engine.jitteredCooldown())
+}
+
+func Test_jitteredCooldown_NoJitter(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	engine.missingHandlerCooldown = 100 * time.Millisecond
+	engine.missingHandlerJitterPct = 0
+	for i := 0; i < 5; i++ {
+		assert.Equal(t, 100*time.Millisecond, engine.jitteredCooldown())
+	}
+}
+
+func Test_jitteredCooldown_WithJitterWithinBounds(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	base := 200 * time.Millisecond
+	pct := 0.25 // 25%
+	engine.missingHandlerCooldown = base
+	engine.missingHandlerJitterPct = pct
+
+	min := float64(base) * (1 - pct)
+	max := float64(base) * (1 + pct)
+	for i := 0; i < 20; i++ {
+		d := engine.jitteredCooldown()
+		dd := float64(d)
+		if dd < min || dd > max {
+			t.Fatalf("cooldown %v out of bounds [%v, %v]", d, time.Duration(min), time.Duration(max))
+		}
+	}
+}
+
+// -- shouldLogSkip ----------------------------------------------------------
+
+func Test_shouldLogSkip_Throttle(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	engine.missingHandlerLogThrottle = 50 * time.Millisecond
+
+	key := "abc"
+	assert.True(t, engine.shouldLogSkip(key))  // first allowed
+	assert.False(t, engine.shouldLogSkip(key)) // throttled
+	time.Sleep(60 * time.Millisecond)
+	assert.True(t, engine.shouldLogSkip(key)) // allowed after throttle
+}
+
+func Test_shouldLogSkip_DisabledThrottle(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	engine.missingHandlerLogThrottle = 0
+	for i := 0; i < 3; i++ {
+		assert.True(t, engine.shouldLogSkip("k"))
+	}
+}
+
+// -- validateDefinition -----------------------------------------------------
+
+func Test_validateDefinition_Success(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	def := &WorkflowDefinition{
+		ID:   "wf",
+		Name: "wf",
+		Definition: GraphDefinition{
+			Start: "A",
+			Steps: map[string]*StepDefinition{
+				"A": {Name: "A", Type: StepTypeTask, Next: []string{"B"}, Prev: rootStepName},
+				"B": {Name: "B", Type: StepTypeTask, Prev: "A"},
+			},
+		},
+	}
+	assert.NoError(t, engine.validateDefinition(def))
+}
+
+func Test_validateDefinition_Errors(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+
+	// no name
+	def1 := &WorkflowDefinition{Definition: GraphDefinition{Start: "A", Steps: map[string]*StepDefinition{"A": {Name: "A"}}}}
+	assert.Error(t, engine.validateDefinition(def1))
+
+	// no start
+	def2 := &WorkflowDefinition{Name: "wf", Definition: GraphDefinition{Steps: map[string]*StepDefinition{"A": {Name: "A"}}}}
+	assert.Error(t, engine.validateDefinition(def2))
+
+	// no steps
+	def3 := &WorkflowDefinition{Name: "wf", Definition: GraphDefinition{Start: "A", Steps: map[string]*StepDefinition{}}}
+	assert.Error(t, engine.validateDefinition(def3))
+
+	// start not found
+	def4 := &WorkflowDefinition{Name: "wf", Definition: GraphDefinition{Start: "X", Steps: map[string]*StepDefinition{"A": {Name: "A"}}}}
+	assert.Error(t, engine.validateDefinition(def4))
+
+	// next ref unknown
+	def5 := &WorkflowDefinition{
+		Name: "wf",
+		Definition: GraphDefinition{
+			Start: "A",
+			Steps: map[string]*StepDefinition{
+				"A": {Name: "A", Next: []string{"Z"}},
+			},
+		},
+	}
+	assert.Error(t, engine.validateDefinition(def5))
+
+	// onFailure unknown
+	def6 := &WorkflowDefinition{
+		Name: "wf",
+		Definition: GraphDefinition{
+			Start: "A",
+			Steps: map[string]*StepDefinition{
+				"A": {Name: "A", OnFailure: "C"},
+			},
+		},
+	}
+	assert.Error(t, engine.validateDefinition(def6))
+
+	// parallel unknown
+	def7 := &WorkflowDefinition{
+		Name: "wf",
+		Definition: GraphDefinition{
+			Start: "A",
+			Steps: map[string]*StepDefinition{
+				"A": {Name: "A", Type: StepTypeFork, Parallel: []string{"P1"}},
+			},
+		},
+	}
+	assert.Error(t, engine.validateDefinition(def7))
+}
+
+// -- determineExecutedBranch ------------------------------------------------
+
+func Test_determineExecutedBranch_Addl(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	step := &StepDefinition{Name: "COND", Next: []string{"X"}, Else: "Y"}
+	m := map[string]*WorkflowStep{
+		"X": {StepName: "X", Status: StepStatusCompleted},
+	}
+	assert.Equal(t, "next", engine.determineExecutedBranch(step, m))
+
+	m = map[string]*WorkflowStep{
+		"Y": {StepName: "Y", Status: StepStatusCompensation},
+	}
+	assert.Equal(t, "else", engine.determineExecutedBranch(step, m))
+
+	m = map[string]*WorkflowStep{}
+	assert.Equal(t, "", engine.determineExecutedBranch(step, m))
+}
+
+// -- isStepInParallelBranch / isStepDescendantOf ----------------------------
+
+func Test_isStepInParallelBranch_and_isStepDescendantOf(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	def := buildForkJoinDef()
+	fork := def.Definition.Steps["F"]
+
+	assert.True(t, engine.isStepInParallelBranch("A", fork, def))
+	assert.True(t, engine.isStepInParallelBranch("A1", fork, def))
+	assert.True(t, engine.isStepDescendantOf("A1", "A", def))
+	assert.False(t, engine.isStepDescendantOf("A", "A1", def))
+	assert.False(t, engine.isStepInParallelBranch("J", fork, def))
+}
+
+// -- hasPendingStepsInParallelBranches -------------------------------------
+
+func Test_hasPendingStepsInParallelBranches_TrueWhenOtherPending(t *testing.T) {
+	ctx := context.Background()
+	def := buildForkJoinDirectWaitForDef()
+	engine, store := newTestEngineWithStore(t)
+
+	instanceID := int64(200)
+	store.EXPECT().GetInstance(mock.Anything, instanceID).
+		Return(&WorkflowInstance{ID: instanceID, WorkflowID: def.ID}, nil).Maybe()
+	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil).Maybe()
+
+	// Join.WaitFor = [A, B]. We have A completed, and a running descendant A1 not in WaitFor -> should be true
+	steps := []WorkflowStep{
+		{InstanceID: instanceID, StepName: "A", Status: StepStatusCompleted},
+		{InstanceID: instanceID, StepName: "A1", Status: StepStatusRunning}, // not in WaitFor for J
+	}
+	join := def.Definition.Steps["J"]
+
+	assert.True(t, engine.hasPendingStepsInParallelBranches(ctx, instanceID, join, steps))
+}
+
+func Test_hasPendingStepsInParallelBranches_FalseWhenNoOtherPending(t *testing.T) {
+	ctx := context.Background()
+	def := buildForkJoinDef()
+	engine, store := newTestEngineWithStore(t)
+
+	instanceID := int64(201)
+	store.EXPECT().GetInstance(mock.Anything, instanceID).
+		Return(&WorkflowInstance{ID: instanceID, WorkflowID: def.ID}, nil).Maybe()
+	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil).Maybe()
+
+	steps := []WorkflowStep{
+		{InstanceID: instanceID, StepName: "A1", Status: StepStatusCompleted},
+		{InstanceID: instanceID, StepName: "B1", Status: StepStatusCompleted},
+	}
+	join := def.Definition.Steps["J"]
+
+	assert.False(t, engine.hasPendingStepsInParallelBranches(ctx, instanceID, join, steps))
+}
+
+// -- GetStatus/GetSteps pass-throughs --------------------------------------
+
+func Test_GetStatus_Passthrough(t *testing.T) {
+	ctx := context.Background()
+	engine, store := newTestEngineWithStore(t)
+	instanceID := int64(300)
+
+	status := StatusRunning
+	store.EXPECT().GetInstance(mock.Anything, instanceID).
+		Return(&WorkflowInstance{ID: instanceID, Status: status}, nil)
+
+	got, err := engine.GetStatus(ctx, instanceID)
+	assert.NoError(t, err)
+	assert.Equal(t, status, got)
+}
+
+func Test_GetSteps_Passthrough(t *testing.T) {
+	ctx := context.Background()
+	engine, store := newTestEngineWithStore(t)
+	instanceID := int64(301)
+
+	expected := []WorkflowStep{{InstanceID: instanceID, StepName: "A"}}
+	store.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return(expected, nil)
+
+	got, err := engine.GetSteps(ctx, instanceID)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
+// -- RegisterHandler/RegisterPlugin basic registration ----------------------
+
+type dummyHandler struct{ name string }
+
+func (d dummyHandler) Name() string { return d.name }
+func (d dummyHandler) Execute(ctx context.Context, stepCtx StepContext, input json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func Test_RegisterHandler_StoresWrappedHandler(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	h := dummyHandler{name: "H"}
+	engine.RegisterHandler(h)
+	engine.mu.RLock()
+	_, ok := engine.handlers["H"]
+	engine.mu.RUnlock()
+	assert.True(t, ok)
+}
+
+func Test_RegisterPlugin_CreatesManagerAndRegisters(t *testing.T) {
+	engine, _ := newTestEngineWithStore(t)
+	p := NewMockPlugin(t)
+	p.EXPECT().Name().Return("p1").Maybe()
+	engine.RegisterPlugin(p)
+	assert.NotNil(t, engine.pluginManager)
 }
