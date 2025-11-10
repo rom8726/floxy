@@ -4,6 +4,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/rom8726/floxy)](https://goreportcard.com/report/github.com/rom8726/floxy)
 [![Coverage Status](https://coveralls.io/repos/github/rom8726/floxy/badge.svg?branch=main)](https://coveralls.io/github/rom8726/floxy?branch=main&ver=1)
 
+[![boosty-cozy](https://gideonwhite1029.github.io/badges/cozy-boosty_vector.svg)](https://boosty.to/dev-tools-hacker)
+
 A Go library for creating and executing workflows with a custom DSL. Implements the Saga pattern with orchestrator approach, providing transaction management and compensation capabilities.
 
 floxy means "flow" + "flux" + "tiny".
