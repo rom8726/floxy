@@ -1,0 +1,143 @@
+@startuml Saga Simple Sequence
+
+title Floxy Saga - High Level Flow
+
+participant "Client" as C
+participant "Engine" as E
+participant "Store" as S
+participant "Handler" as H
+
+== Workflow Start ==
+C -> E: Start(workflowID, input)
+E -> S: GetWorkflowDefinition()
+S --> E: Definition
+E -> S: CreateInstance()
+E -> S: EnqueueStep(startStep)
+E --> C: InstanceID
+
+== Step Execution ==
+E -> S: DequeueStep()
+S --> E: QueueItem
+E -> S: GetInstance()
+E -> S: GetStep()
+E -> S: UpdateStep(status=running)
+E -> H: Execute(input)
+H --> E: output/error
+
+alt Success
+    E -> S: UpdateStep(status=completed)
+    E -> S: EnqueueNextSteps()
+else Failure
+    E -> S: UpdateStep(status=failed)
+    E -> E: Rollback to SavePoint
+    E -> S: EnqueueCompensationSteps()
+end
+
+== Compensation ==
+E -> S: DequeueStep() [compensation]
+E -> H: ExecuteCompensation(input)
+H --> E: result/error
+
+alt Compensation Success
+    E -> S: UpdateStep(status=rolled_back)
+else Compensation Failure
+    alt Can Retry
+        E -> S: UpdateStepCompensationRetry()
+        E -> S: EnqueueStep() [retry]
+    else Max Retries
+        E -> S: UpdateStep(status=failed)
+        E -> S: CreateDeadLetterRecord()
+    end
+end
+
+== Fork/Join ==
+E -> E: ExecuteFork()
+loop For each parallel branch
+    E -> S: CreateStep(parallelStep)
+    E -> S: EnqueueStep(parallelStep)
+end
+E -> S: CreateJoinState(waitingFor)
+
+... Parallel steps execute in parallel ...
+
+E -> S: NotifyJoinStep(completedStep)
+E -> S: UpdateJoinState()
+
+alt Join Ready
+    E -> S: CreateStep(joinStep)
+    E -> S: EnqueueStep(joinStep)
+    E -> E: ExecuteJoin()
+    E -> S: EnqueueNextSteps()
+end
+
+== Condition Step ==
+E -> E: EvaluateCondition(expr)
+alt Condition True
+    E -> S: EnqueueNextSteps(nextBranch)
+else Condition False
+    E -> S: EnqueueNextSteps(elseBranch)
+end
+
+== Human Decision ==
+E -> E: ExecuteHuman()
+E -> S: UpdateStep(status=waiting_decision)
+note right: Workflow paused, waiting for human
+
+... Human makes decision ...
+
+C -> E: MakeHumanDecision(stepID, decision)
+E -> S: CreateHumanDecision()
+alt Decision = Confirmed
+    E -> S: UpdateStep(status=confirmed)
+    E -> S: UpdateInstanceStatus(status=running)
+    E -> S: EnqueueNextSteps()
+else Decision = Rejected
+    E -> S: UpdateStep(status=rejected)
+    E -> S: UpdateInstanceStatus(status=aborted)
+end
+
+== Cancel/Abort ==
+C -> E: CancelWorkflow(instanceID) / AbortWorkflow(instanceID)
+E -> S: CreateCancelRequest()
+
+... Cancel worker processes ...
+
+E -> S: GetActiveSteps()
+loop For each active step
+    E -> S: UpdateStep(status=skipped)
+end
+
+alt Cancel (with rollback)
+    E -> E: RollbackCompletedSteps()
+    E -> S: UpdateInstanceStatus(status=cancelled)
+else Abort (no rollback)
+    E -> S: UpdateInstanceStatus(status=aborted)
+end
+
+== Dead Letter Queue ==
+alt Step Fails with DLQ Enabled
+    E -> S: UpdateStep(status=paused)
+    E -> S: CreateDeadLetterRecord()
+    E -> S: PauseActiveSteps()
+    E -> S: UpdateInstanceStatus(status=dlq)
+    note right: Workflow frozen, requires operator
+
+... Operator reviews DLQ ...
+
+C -> E: RequeueFromDLQ(dlqID, newInput?)
+E -> S: RequeueDeadLetter()
+E -> S: UpdateStep(status=pending)
+E -> S: UpdateInstanceStatus(status=running)
+E -> S: EnqueueStep()
+end
+
+== Workflow Completion ==
+E -> E: CheckAllStepsComplete()
+alt All Steps Complete
+    E -> S: UpdateInstanceStatus(status=completed)
+else Workflow Failed
+    E -> S: UpdateInstanceStatus(status=failed)
+end
+
+@enduml
+

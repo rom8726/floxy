@@ -8,25 +8,69 @@ state "Step Lifecycle" as lifecycle {
     Pending --> Running : ExecuteNext()
     Running --> Completed : Handler Success
     Running --> Failed : Handler Error
+    Running --> Skipped : Cancellation/Abort
 
     Completed --> [*] : Workflow Complete
     Failed --> Compensation : Has OnFailure Handler
     Failed --> RolledBack : No OnFailure Handler
+    Failed --> Paused : DLQ Enabled
+
+    Paused --> Pending : RequeueFromDLQ()
+    Paused --> [*] : Workflow Aborted
+
+    Skipped --> [*] : Workflow Cancelled/Aborted
 }
 
 state "Compensation Process" as compensation {
-    Compensation --> Compensation : Retry (if retryCount < maxRetries)
+    Compensation --> Compensation : Retry\n(if retryCount < maxRetries)
     Compensation --> RolledBack : Success
     Compensation --> Failed : Max Retries Exceeded
+    Compensation --> Paused : DLQ on Max Retries
+}
+
+state "Human Decision Process" as human {
+    [*] --> WaitingDecision : Human Step Executed
+    WaitingDecision --> Confirmed : Human Decision = Confirmed
+    WaitingDecision --> Rejected : Human Decision = Rejected
+    Confirmed --> Running : Continue Workflow
+    Rejected --> [*] : Workflow Aborted
 }
 
 state "Final States" as final {
     RolledBack : Step Successfully Compensated
-    Failed : Step Failed (No Compensation or Max Retries)
+    Failed : Step Failed\n(No Compensation or Max Retries)
+    Completed : Step Executed Successfully
+    Skipped : Step Skipped Due to Cancellation
+    Paused : Step Paused (DLQ)
+}
+
+state "Workflow Lifecycle" as workflow {
+    [*] --> Pending : Workflow Created
+    Pending --> Running : Start()
+    Running --> Completed : All Steps Complete
+    Running --> Failed : Step Failed (No DLQ)
+    Running --> DLQ : Step Failed (DLQ Enabled)
+    Running --> Cancelling : Cancel Requested
+    Running --> Aborted : Abort Requested
+    Running --> RollingBack : Rollback in Progress
+
+    DLQ --> Running : RequeueFromDLQ()
+    DLQ --> Aborted : Manual Abort
+
+    Cancelling --> Cancelled : Rollback Complete
+    Cancelling --> Failed : Rollback Failed
+
+    Completed --> [*]
+    Failed --> [*]
+    Cancelled --> [*]
+    Aborted --> [*]
 }
 
 lifecycle --> compensation
 compensation --> final
+lifecycle --> human
+human --> final
+workflow --> lifecycle
 
 note right of Pending
   Initial state when step is created
@@ -42,16 +86,64 @@ end note
 
 note right of Failed
   Step execution failed
+  Triggers rollback if no DLQ
 end note
 
 note right of Compensation
   Step is being compensated
   Uses CompensationRetryCount
+  Separate from normal RetryCount
 end note
 
 note right of RolledBack
   Step successfully compensated
   or no compensation needed
+end note
+
+note right of WaitingDecision
+  Human step waiting for
+  human decision
+end note
+
+note right of Confirmed
+  Human decision confirmed
+  Workflow continues
+end note
+
+note right of Rejected
+  Human decision rejected
+  Workflow aborted
+end note
+
+note right of Paused
+  Step paused due to DLQ
+  Requires manual intervention
+end note
+
+note right of Skipped
+  Step skipped due to
+  workflow cancellation/abort
+end note
+
+note right of DLQ
+  Workflow in Dead Letter Queue
+  All execution frozen
+  Requires operator intervention
+end note
+
+note right of Cancelling
+  Workflow cancellation in progress
+  Rolling back completed steps
+end note
+
+note right of Cancelled
+  Workflow cancelled successfully
+  Compensation completed
+end note
+
+note right of Aborted
+  Workflow aborted immediately
+  No compensation performed
 end note
 
 @enduml

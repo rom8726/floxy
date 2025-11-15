@@ -4,54 +4,187 @@ title Floxy Saga Compensation Architecture
 
 package "Engine Layer" {
     class Engine {
+        -txManager: TxManager
+        -store: Store
+        -handlers: map[string]StepHandler
+        -pluginManager: *PluginManager
+        -cancelContexts: map[int64]map[int64]context.CancelFunc
+        +NewEngine()
+        +RegisterHandler()
+        +RegisterPlugin()
+        +RegisterWorkflow()
+        +Start()
         +ExecuteNext()
-        +executeStep()
-        +executeCompensationStep()
-        +handleStepFailure()
-        +rollbackStep()
-        +rollbackToSavePointOrRoot()
+        +MakeHumanDecision()
+        +CancelWorkflow()
+        +AbortWorkflow()
+        +RequeueFromDLQ()
+        +Shutdown()
+        -executeStep()
+        -executeCompensationStep()
+        -executeTask()
+        -executeFork()
+        -executeJoin()
+        -executeCondition()
+        -executeHuman()
+        -handleStepFailure()
+        -handleStepSuccess()
+        -handleCancellation()
+        -rollbackStep()
+        -rollbackStepChain()
+        -rollbackToSavePointOrRoot()
+        -notifyJoinSteps()
+        -enqueueNextSteps()
     }
 
-    class StepHandler {
-        +Execute()
+    class TxManager {
+        +ReadCommitted()
+        +RepeatableRead()
     }
 
-    class CompensationHandler {
-        +Execute()
+    class PluginManager {
+        +Register()
+        +ExecuteWorkflowStart()
+        +ExecuteWorkflowComplete()
+        +ExecuteWorkflowFailed()
+        +ExecuteStepStart()
+        +ExecuteStepComplete()
+        +ExecuteStepFailed()
+        +ExecuteRollbackStepChain()
+    }
+
+    interface StepHandler {
+        +Name(): string
+        +Execute(ctx, stepCtx, input): (output, error)
     }
 }
 
 package "Store Layer" {
     interface Store {
-        +EnqueueStep()
-        +DequeueStep()
+        +SaveWorkflowDefinition()
+        +GetWorkflowDefinition()
+        +CreateInstance()
+        +UpdateInstanceStatus()
+        +GetInstance()
+        +CreateStep()
         +UpdateStep()
         +UpdateStepCompensationRetry()
         +GetStepsByInstance()
+        +EnqueueStep()
+        +DequeueStep()
+        +RemoveFromQueue()
+        +ReleaseQueueItem()
+        +RescheduleAndReleaseQueueItem()
+        +LogEvent()
+        +CreateJoinState()
+        +UpdateJoinState()
+        +GetJoinState()
+        +AddToJoinWaitFor()
+        +ReplaceInJoinWaitFor()
+        +CreateCancelRequest()
+        +GetCancelRequest()
+        +DeleteCancelRequest()
+        +CreateHumanDecision()
+        +GetHumanDecision()
+        +CreateDeadLetterRecord()
+        +RequeueDeadLetter()
+        +ListDeadLetters()
+        +PauseActiveStepsAndClearQueue()
     }
 
     class StoreImpl {
-        +EnqueueStep()
-        +DequeueStep()
-        +UpdateStep()
-        +UpdateStepCompensationRetry()
+        -db: Tx
+        -agingEnabled: bool
+        -agingRate: float64
+        +SetAgingEnabled()
+        +SetAgingRate()
+        +getExecutor()
     }
 }
 
 package "Models" {
+    class WorkflowDefinition {
+        +ID: string
+        +Name: string
+        +Version: int
+        +Definition: GraphDefinition
+        +CreatedAt: time.Time
+    }
+
+    class WorkflowInstance {
+        +ID: int64
+        +WorkflowID: string
+        +Status: WorkflowStatus
+        +Input: json.RawMessage
+        +Output: json.RawMessage
+        +Error: *string
+        +StartedAt: *time.Time
+        +CompletedAt: *time.Time
+    }
+
     class WorkflowStep {
-        -ID: int64
-        -Status: StepStatus
-        -RetryCount: int
-        -CompensationRetryCount: int
-        -MaxRetries: int
+        +ID: int64
+        +InstanceID: int64
+        +StepName: string
+        +StepType: StepType
+        +Status: StepStatus
+        +Input: json.RawMessage
+        +Output: json.RawMessage
+        +Error: *string
+        +RetryCount: int
+        +CompensationRetryCount: int
+        +MaxRetries: int
+        +IdempotencyKey: string
     }
 
     class QueueItem {
-        -ID: int64
-        -InstanceID: int64
-        -StepID: *int64
-        -ScheduledAt: time.Time
+        +ID: int64
+        +InstanceID: int64
+        +StepID: *int64
+        +ScheduledAt: time.Time
+        +AttemptedAt: *time.Time
+        +AttemptedBy: *string
+        +Priority: int
+    }
+
+    class JoinState {
+        +InstanceID: int64
+        +JoinStepName: string
+        +WaitingFor: []string
+        +Completed: []string
+        +Failed: []string
+        +JoinStrategy: JoinStrategy
+        +IsReady: bool
+    }
+
+    class WorkflowCancelRequest {
+        +ID: int64
+        +InstanceID: int64
+        +RequestedBy: string
+        +CancelType: CancelType
+        +Reason: *string
+    }
+
+    class HumanDecisionRecord {
+        +ID: int64
+        +InstanceID: int64
+        +StepID: int64
+        +DecidedBy: string
+        +Decision: HumanDecision
+        +Comment: *string
+        +DecidedAt: time.Time
+    }
+
+    class DeadLetterRecord {
+        +ID: int64
+        +InstanceID: int64
+        +WorkflowID: string
+        +StepID: int64
+        +StepName: string
+        +StepType: string
+        +Input: json.RawMessage
+        +Error: *string
+        +Reason: string
     }
 
     enum StepStatus {
@@ -62,16 +195,68 @@ package "Models" {
         Compensation
         RolledBack
         Skipped
+        WaitingDecision
+        Confirmed
+        Rejected
+        Paused
+    }
+
+    enum WorkflowStatus {
+        Pending
+        Running
+        Completed
+        Failed
+        RollingBack
+        Cancelling
+        Cancelled
+        Aborted
+        DLQ
+    }
+
+    enum StepType {
+        Task
+        Fork
+        Parallel
+        Join
+        Condition
+        SavePoint
+        Human
     }
 }
 
 package "Database" {
+    class workflow_definitions {
+        +id
+        +name
+        +version
+        +definition
+        +created_at
+    }
+
+    class workflow_instances {
+        +id
+        +workflow_id
+        +status
+        +input
+        +output
+        +error
+        +started_at
+        +completed_at
+    }
+
     class workflow_steps {
         +id
+        +instance_id
+        +step_name
+        +step_type
         +status
+        +input
+        +output
+        +error
         +retry_count
         +compensation_retry_count
         +max_retries
+        +idempotency_key
     }
 
     class workflow_queue {
@@ -79,6 +264,19 @@ package "Database" {
         +instance_id
         +step_id
         +scheduled_at
+        +attempted_at
+        +attempted_by
+        +priority
+    }
+
+    class workflow_join_state {
+        +instance_id
+        +join_step_name
+        +waiting_for
+        +completed
+        +failed
+        +join_strategy
+        +is_ready
     }
 
     class workflow_events {
@@ -87,45 +285,112 @@ package "Database" {
         +step_id
         +event_type
         +payload
+        +created_at
+    }
+
+    class workflow_cancel_requests {
+        +id
+        +instance_id
+        +requested_by
+        +cancel_type
+        +reason
+        +created_at
+    }
+
+    class workflow_human_decisions {
+        +id
+        +instance_id
+        +step_id
+        +decided_by
+        +decision
+        +comment
+        +decided_at
+    }
+
+    class workflow_dlq {
+        +id
+        +instance_id
+        +workflow_id
+        +step_id
+        +step_name
+        +step_type
+        +input
+        +error
+        +reason
+        +created_at
     }
 }
 
+Engine --> TxManager : uses
 Engine --> Store : uses
+Engine --> PluginManager : manages
 Store --> StoreImpl : implements
 StoreImpl --> Database : queries
 
+Engine --> WorkflowDefinition : manages
+Engine --> WorkflowInstance : manages
 Engine --> WorkflowStep : manages
 Engine --> QueueItem : processes
-Engine --> StepStatus : uses
+Engine --> JoinState : manages
+Engine --> WorkflowCancelRequest : handles
+Engine --> HumanDecisionRecord : handles
+Engine --> DeadLetterRecord : handles
+Engine --> StepHandler : executes
 
+StoreImpl --> workflow_definitions : queries
+StoreImpl --> workflow_instances : queries
 StoreImpl --> workflow_steps : queries
 StoreImpl --> workflow_queue : queries
+StoreImpl --> workflow_join_state : queries
 StoreImpl --> workflow_events : queries
-
-Engine --> StepHandler : executes
-Engine --> CompensationHandler : executes compensation
+StoreImpl --> workflow_cancel_requests : queries
+StoreImpl --> workflow_human_decisions : queries
+StoreImpl --> workflow_dlq : queries
 
 note right of Engine
   Main orchestration engine
-  Handles step execution and
-  compensation logic
+  - Handles step execution
+  - Manages compensation logic
+  - Coordinates fork/join
+  - Handles cancellation/abort
+  - Manages human decisions
+  - Processes DLQ
+end note
+
+note right of TxManager
+  Transaction management
+  - ReadCommitted isolation
+  - RepeatableRead isolation
+  - Nested transaction support
+end note
+
+note right of PluginManager
+  Plugin lifecycle hooks
+  - OnWorkflowStart/Complete/Failed
+  - OnStepStart/Complete/Failed
+  - OnRollbackStepChain
 end note
 
 note right of Store
   Data access layer
-  Abstracts database operations
+  - Abstracts database operations
+  - Supports priority aging
+  - Queue management
 end note
 
 note right of WorkflowStep
-  Core model representing
-  a workflow step with
-  separate retry counters
+  Core model with separate
+  retry counters for:
+  - Normal execution (RetryCount)
+  - Compensation (CompensationRetryCount)
 end note
 
-note right of StepStatus
-  Compensation status
-  indicates step is being
-  compensated
+note right of JoinState
+  Tracks parallel branch
+  completion state for
+  Join steps with strategies:
+  - All: wait for all
+  - Any: wait for any
 end note
 
 @enduml

@@ -3,14 +3,42 @@
 title Saga Compensation Flow in Floxy
 
 participant "Engine" as E
+participant "TxManager" as TM
 participant "Store" as S
+participant "PluginManager" as PM
 participant "StepHandler" as H
 participant "CompensationHandler" as CH
 participant "Database" as DB
 
+== Workflow Start ==
+E -> TM: ReadCommitted()
+TM -> DB: BEGIN TRANSACTION
+E -> S: GetWorkflowDefinition()
+S --> E: WorkflowDefinition
+E -> S: CreateInstance()
+S -> DB: INSERT INTO workflow_instances
+DB --> S: WorkflowInstance
+S --> E: WorkflowInstance
+
+E -> PM: ExecuteWorkflowStart()
+PM --> E: OK
+
+E -> S: UpdateInstanceStatus(status=running)
+S -> DB: UPDATE workflow_instances
+DB --> S: OK
+S --> E: OK
+
+E -> S: EnqueueStep(startStep)
+S -> DB: INSERT INTO workflow_queue
+DB --> S: OK
+S --> E: OK
+TM -> DB: COMMIT
+
 == Normal Step Execution ==
+E -> TM: ReadCommitted()
+TM -> DB: BEGIN TRANSACTION
 E -> S: ExecuteNext()
-S -> DB: DequeueStep()
+S -> DB: DequeueStep() [FOR UPDATE SKIP LOCKED]
 DB --> S: QueueItem
 S --> E: QueueItem
 
@@ -25,73 +53,124 @@ S -> DB: UPDATE workflow_steps SET status='running'
 DB --> S: OK
 S --> E: OK
 
+E -> PM: ExecuteStepStart()
+PM --> E: OK
+
 E -> H: Execute(stepCtx, input)
 H --> E: output/error
 
 alt Step Success
+    E -> PM: ExecuteStepComplete()
+    PM --> E: OK
+
     E -> S: UpdateStep(status=completed, output)
     S -> DB: UPDATE workflow_steps SET status='completed'
     DB --> S: OK
     S --> E: OK
+
+    E -> S: notifyJoinSteps()
+    S -> DB: UpdateJoinState()
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: enqueueNextSteps()
+    S -> DB: INSERT INTO workflow_queue
+    DB --> S: OK
+    S --> E: OK
+
 else Step Failure
+    E -> PM: ExecuteStepFailed()
+    PM --> E: OK
+
     E -> S: UpdateStep(status=failed, error)
     S -> DB: UPDATE workflow_steps SET status='failed'
     DB --> S: OK
     S --> E: OK
 
-    == Rollback Process ==
-    E -> E: rollbackToSavePointOrRoot()
-    E -> E: rollbackStepChain()
+    alt DLQ Enabled
+        E -> S: UpdateStep(status=paused, error)
+        S -> DB: UPDATE workflow_steps SET status='paused'
+        DB --> S: OK
+        S --> E: OK
 
-    loop For each step in rollback chain
-        E -> S: GetWorkflowDefinition()
-        S --> E: WorkflowDefinition
+        E -> S: CreateDeadLetterRecord()
+        S -> DB: INSERT INTO workflow_dlq
+        DB --> S: OK
+        S --> E: OK
 
-        E -> E: rollbackStep()
+        E -> S: PauseActiveStepsAndClearQueue()
+        S -> DB: UPDATE/DELETE
+        DB --> S: OK
+        S --> E: OK
 
-        alt Step is Condition in Parallel Flow
-            E -> E: determineExecutedBranch(conditionStep, stepDef, stepMap)
-            note right: Check which branch (Next/Else) was actually executed
-            
-            alt Next branch was executed
-                loop For each step in Next branch
-                    E -> E: rollbackStepChain(nextStep, ...)
+        E -> S: UpdateInstanceStatus(status=dlq)
+        S -> DB: UPDATE workflow_instances SET status='dlq'
+        DB --> S: OK
+        S --> E: OK
+    else Rollback Process
+        == Rollback Process ==
+        E -> E: rollbackToSavePointOrRoot()
+        E -> E: rollbackStepChain()
+
+        loop For each step in rollback chain
+            E -> PM: ExecuteRollbackStepChain()
+            PM --> E: OK
+
+            E -> S: GetWorkflowDefinition()
+            S --> E: WorkflowDefinition
+
+            E -> E: rollbackStep()
+
+            alt Step is Condition in Parallel Flow
+                E -> E: determineExecutedBranch()
+                note right: Check which branch (Next/Else) was executed
+                
+                alt Next branch was executed
+                    loop For each step in Next branch
+                        E -> E: rollbackStepChain(nextStep, ...)
+                    end
+                else Else branch was executed
+                    E -> E: rollbackStepChain(elseStep, ...)
                 end
-            else Else branch was executed
-                E -> E: rollbackStepChain(elseStep, ...)
-            end
-        else Regular step
-            alt Has OnFailure handler
-                E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
-                S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
-                DB --> S: OK
-                S --> E: OK
+            else Regular step
+                alt Has OnFailure handler
+                    E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
+                    S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
+                    DB --> S: OK
+                    S --> E: OK
 
-                E -> S: EnqueueStep(stepID)
-                S -> DB: INSERT INTO workflow_queue
-                DB --> S: OK
-                S --> E: OK
+                    E -> S: EnqueueStep(stepID, priority=high)
+                    S -> DB: INSERT INTO workflow_queue
+                    DB --> S: OK
+                    S --> E: OK
 
-                E -> S: LogEvent(compensation_started)
-                S -> DB: INSERT INTO workflow_events
-                DB --> S: OK
-                S --> E: OK
-            else No OnFailure handler
-                E -> S: UpdateStep(status=rolled_back)
-                S -> DB: UPDATE workflow_steps SET status='rolled_back'
-                DB --> S: OK
-                S --> E: OK
+                    E -> S: LogEvent(compensation_started)
+                    S -> DB: INSERT INTO workflow_events
+                    DB --> S: OK
+                    S --> E: OK
+                else No OnFailure handler
+                    E -> S: UpdateStep(status=rolled_back)
+                    S -> DB: UPDATE workflow_steps SET status='rolled_back'
+                    DB --> S: OK
+                    S --> E: OK
+                end
             end
         end
-    end
 
-    E -> S: UpdateInstanceStatus(status=failed)
-    S -> DB: UPDATE workflow_instances SET status='failed'
-    DB --> S: OK
-    S --> E: OK
+        E -> S: UpdateInstanceStatus(status=failed)
+        S -> DB: UPDATE workflow_instances SET status='failed'
+        DB --> S: OK
+        S --> E: OK
+
+        E -> PM: ExecuteWorkflowFailed()
+        PM --> E: OK
+    end
 end
+TM -> DB: COMMIT
 
 == Compensation Execution ==
+E -> TM: ReadCommitted()
+TM -> DB: BEGIN TRANSACTION
 E -> S: ExecuteNext()
 S -> DB: DequeueStep()
 DB --> S: QueueItem (step with status=compensation)
@@ -104,9 +183,6 @@ E -> E: executeCompensationStep()
 
 E -> S: GetWorkflowDefinition()
 S --> E: WorkflowDefinition
-
-E -> S: GetStepsByInstance()
-S --> E: WorkflowStep[]
 
 E -> CH: Execute(stepCtx, input)
 note right: stepCtx.retryCount = step.CompensationRetryCount
@@ -129,7 +205,7 @@ else Compensation Failure
         DB --> S: OK
         S --> E: OK
 
-        E -> S: EnqueueStep(stepID)
+        E -> S: EnqueueStep(stepID, priority=high)
         S -> DB: INSERT INTO workflow_queue
         DB --> S: OK
         S --> E: OK
@@ -145,51 +221,170 @@ else Compensation Failure
         DB --> S: OK
         S --> E: OK
 
+        E -> S: CreateDeadLetterRecord()
+        S -> DB: INSERT INTO workflow_dlq
+        DB --> S: OK
+        S --> E: OK
+
         E -> S: LogEvent(compensation_max_retries_exceeded)
         S -> DB: INSERT INTO workflow_events
         DB --> S: OK
         S --> E: OK
     end
 end
+TM -> DB: COMMIT
+
+== Fork/Join Execution ==
+E -> E: executeFork()
+E -> S: LogEvent(fork_started)
+S -> DB: INSERT INTO workflow_events
+DB --> S: OK
+S --> E: OK
+
+loop For each parallel step
+    E -> S: CreateStep(parallelStep)
+    S -> DB: INSERT INTO workflow_steps
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: EnqueueStep(parallelStep.ID)
+    S -> DB: INSERT INTO workflow_queue
+    DB --> S: OK
+    S --> E: OK
+end
+
+E -> S: CreateJoinState(waitingFor, strategy)
+S -> DB: INSERT INTO workflow_join_state
+DB --> S: OK
+S --> E: OK
+
+... Parallel steps execute ...
+
+E -> S: notifyJoinSteps(completedStepName, success)
+S -> DB: UpdateJoinState()
+note right: Updates completed/failed lists\nChecks if join is ready
+DB --> S: isReady
+S --> E: isReady
+
+alt Join Ready
+    E -> S: CreateStep(joinStep)
+    S -> DB: INSERT INTO workflow_steps
+    DB --> S: OK
+    S --> E: OK
+
+    E -> S: EnqueueStep(joinStep.ID)
+    S -> DB: INSERT INTO workflow_queue
+    DB --> S: OK
+    S --> E: OK
+
+    E -> E: executeJoin()
+    E -> S: GetJoinState()
+    S --> E: JoinState
+
+    alt Join Strategy = All and Failed > 0
+        E --> E: return error
+    else Join Success
+        E -> S: UpdateStep(status=completed, output)
+        S --> E: OK
+    end
+end
 
 == Condition Step Execution ==
-note over E: Special handling for condition steps
-
-E -> E: executeCondition(stepCtx, stepDef)
+E -> E: executeCondition()
 E -> E: evaluateCondition(expr, stepCtx)
 note right: Uses Go template with functions:\neq, ne, gt, lt, ge, le
 
 alt Condition is True
-    E -> E: enqueueNextSteps(stepDef.Next)
+    E -> E: handleStepSuccess(..., next=true)
+    E -> S: enqueueNextSteps(stepDef.Next)
     note right: Execute Next branch steps
 else Condition is False
-    E -> E: enqueueNextSteps(stepDef.Else)
+    E -> E: handleStepSuccess(..., next=false)
+    E -> S: enqueueNextSteps(stepDef.Else)
     note right: Execute Else branch steps
 end
 
-== Parallel Flow Rollback with Conditions ==
-note over E: When rolling back parallel flows with condition steps
+== Human Decision Step ==
+E -> E: executeHuman()
+E -> S: GetHumanDecision(stepID)
+S --> E: HumanDecisionRecord / ErrEntityNotFound
 
-E -> E: rollbackStepChain(parallelStep, ...)
-
-loop For each parallel branch
-    E -> E: Check if branch contains condition steps
-    
-    alt Branch has condition step
-        E -> E: determineExecutedBranch(conditionStep, stepDef, stepMap)
-        note right: Check stepMap to see which branch was executed
-        
-        alt Next branch was executed
-            E -> E: rollbackStepChain(nextStep, ...)
-            note right: Rollback only Next branch steps
-        else Else branch was executed
-            E -> E: rollbackStepChain(elseStep, ...)
-            note right: Rollback only Else branch steps
-        end
-    else Branch has no condition step
-        E -> E: rollbackStepChain(regularStep, ...)
-        note right: Standard rollback for regular steps
+alt Decision Already Made
+    E -> E: processHumanDecision()
+    alt Decision = Confirmed
+        E -> S: UpdateStepStatus(status=confirmed)
+        E -> S: UpdateInstanceStatus(status=running)
+        E -> E: continueWorkflowAfterHumanDecision()
+    else Decision = Rejected
+        E -> S: UpdateStepStatus(status=rejected)
+        E -> S: UpdateInstanceStatus(status=aborted)
     end
+else No Decision Yet
+    E -> S: UpdateStepStatus(status=waiting_decision)
+    E -> S: EnqueueStep(stepID, priority=higher)
+    E -> S: LogEvent(step_started, reason=waiting_for_human_decision)
+    note right: Emits HumanDecisionWaitingEvent
 end
+
+== Cancel/Abort Workflow ==
+E -> TM: ReadCommitted()
+TM -> DB: BEGIN TRANSACTION
+E -> S: CreateCancelRequest()
+S -> DB: INSERT INTO workflow_cancel_requests
+DB --> S: OK
+S --> E: OK
+
+E -> S: LogEvent(cancellation_started / abort_started)
+S -> DB: INSERT INTO workflow_events
+DB --> S: OK
+S --> E: OK
+TM -> DB: COMMIT
+
+... Cancel worker processes request ...
+
+E -> E: processCancelRequests()
+E -> S: GetCancelRequest(instanceID)
+S --> E: WorkflowCancelRequest
+
+E -> E: handleCancellation()
+
+E -> S: GetActiveStepsForUpdate()
+S -> DB: SELECT ... FOR UPDATE SKIP LOCKED
+DB --> S: WorkflowStep[]
+S --> E: WorkflowStep[]
+
+loop For each active step
+    E -> S: UpdateStep(status=skipped)
+    S -> DB: UPDATE workflow_steps
+    DB --> S: OK
+    S --> E: OK
+end
+
+alt Cancel Type = Cancel
+    E -> S: UpdateInstanceStatus(status=cancelling)
+    E -> E: rollbackStepChain()
+    note right: Rollback to last completed step
+    E -> S: UpdateInstanceStatus(status=cancelled)
+else Cancel Type = Abort
+    E -> S: UpdateInstanceStatus(status=aborted)
+end
+
+E -> S: DeleteCancelRequest()
+S -> DB: DELETE FROM workflow_cancel_requests
+DB --> S: OK
+S --> E: OK
+
+== DLQ Requeue ==
+E -> TM: ReadCommitted()
+TM -> DB: BEGIN TRANSACTION
+E -> S: RequeueDeadLetter(dlqID, newInput)
+S -> DB: UPDATE workflow_steps SET status='pending', input=...
+S -> DB: INSERT INTO workflow_queue
+S -> DB: UPDATE workflow_instances SET status='running'
+S -> DB: UPDATE workflow_steps SET status='pending' WHERE step_type='join'
+S -> DB: DELETE FROM workflow_dlq
+DB --> S: OK
+S --> E: OK
+TM -> DB: COMMIT
 
 @enduml
