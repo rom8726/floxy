@@ -30,7 +30,7 @@ skip-files:
 
 # Cache speeds up subsequent scans in CI (uses workspace cache if available)
 cache:
-  backend: filesystem
+  backend: fs
 
 # Enable parallel scanning for faster CI times when supported
 parallel: 4
