@@ -15,6 +15,7 @@ import (
 
 const (
 	defaultCancelWorkerInterval = 100 * time.Millisecond
+	defaultShutdownTimeout      = 5 * time.Second
 )
 
 type Engine struct {
@@ -25,8 +26,15 @@ type Engine struct {
 	cancelContexts       map[int64]map[int64]context.CancelFunc // instanceID -> stepID -> cancel function
 	cancelMu             sync.RWMutex
 	cancelWorkerInterval time.Duration
-	shutdownCh           chan struct{}
-	shutdownOnce         sync.Once
+
+	// Shutdown logic controls
+	shutdownCh     chan struct{}
+	shutdownOnce   sync.Once
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+	activeSteps    sync.WaitGroup
+	isShuttingDown bool
+	shutdownMu     sync.RWMutex
 
 	humanDecisionWaitingOnce   sync.Once
 	humanDecisionWaitingEvents chan HumanDecisionWaitingEvent
@@ -42,6 +50,8 @@ type Engine struct {
 }
 
 func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	engine := &Engine{
 		txManager:            NewTxManager(pool),
 		store:                NewStore(pool),
@@ -49,6 +59,8 @@ func NewEngine(pool *pgxpool.Pool, opts ...EngineOption) *Engine {
 		cancelContexts:       make(map[int64]map[int64]context.CancelFunc),
 		shutdownCh:           make(chan struct{}),
 		cancelWorkerInterval: defaultCancelWorkerInterval,
+		shutdownCtx:          shutdownCtx,
+		shutdownCancel:       shutdownCancel,
 		// defaults for missing-handler behavior
 		missingHandlerCooldown:    time.Second,
 		missingHandlerLogThrottle: 5 * time.Second,
@@ -191,14 +203,58 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 	return instanceID, nil
 }
 
-func (engine *Engine) Shutdown() {
+func (engine *Engine) Shutdown(timeoutOpt ...time.Duration) error {
+	var shutdownErr error
+
 	engine.shutdownOnce.Do(func() {
+		slog.Info("[floxy] starting graceful shutdown")
+
+		engine.shutdownMu.Lock()
+		engine.isShuttingDown = true
+		engine.shutdownMu.Unlock()
+
 		close(engine.shutdownCh)
+		engine.shutdownCancel()
+
+		var timeout time.Duration
+		if len(timeoutOpt) > 0 {
+			timeout = timeoutOpt[0]
+		}
+
+		if timeout == 0 {
+			timeout = defaultShutdownTimeout
+		}
+
+		done := make(chan struct{})
+		go func() {
+			engine.activeSteps.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			slog.Info("[floxy] graceful shutdown completed")
+		case <-time.After(timeout):
+			shutdownErr = fmt.Errorf("shutdown timeout after %v", timeout)
+			slog.Warn("[floxy] shutdown timeout", "timeout", timeout)
+		}
 	})
+
+	return shutdownErr
 }
 
 func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty bool, err error) {
+	if engine.isShutdown() {
+		return true, nil
+	}
+
 	err = engine.txManager.ReadCommitted(ctx, func(ctx context.Context) error {
+		if engine.isShutdown() {
+			empty = true
+
+			return nil
+		}
+
 		item, err := engine.store.DequeueStep(ctx, workerID)
 		if err != nil {
 			return fmt.Errorf("dequeue step: %w", err)
@@ -209,6 +265,16 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 
 			return nil
 		}
+
+		if engine.isShutdown() {
+			_ = engine.store.ReleaseQueueItem(ctx, item.ID)
+			empty = true
+
+			return nil
+		}
+
+		engine.activeSteps.Add(1)
+		defer engine.activeSteps.Done()
 
 		removeFromQueue := true
 		defer func() {
@@ -495,6 +561,13 @@ func (engine *Engine) AbortWorkflow(ctx context.Context, instanceID int64, reque
 
 		return nil
 	})
+}
+
+func (engine *Engine) isShutdown() bool {
+	engine.shutdownMu.RLock()
+	defer engine.shutdownMu.RUnlock()
+
+	return engine.isShuttingDown
 }
 
 func (engine *Engine) cancelRequestsWorker() {
