@@ -3,6 +3,7 @@ package floxy
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ type Worker struct {
 	workerID string
 	interval time.Duration
 	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func NewWorker(engine *Engine, interval time.Duration) *Worker {
@@ -49,7 +51,7 @@ func (w *Worker) Start(ctx context.Context) {
 }
 
 func (w *Worker) Stop() {
-	close(w.stopCh)
+	w.stopOnce.Do(func() { close(w.stopCh) })
 }
 
 func (w *Worker) processNext(ctx context.Context) (bool, error) {
@@ -59,6 +61,7 @@ func (w *Worker) processNext(ctx context.Context) (bool, error) {
 type WorkerPool struct {
 	workers []*Worker
 	engine  *Engine
+	mu      sync.Mutex
 }
 
 func NewWorkerPool(engine *Engine, size int, interval time.Duration) *WorkerPool {
@@ -74,15 +77,27 @@ func NewWorkerPool(engine *Engine, size int, interval time.Duration) *WorkerPool
 }
 
 func (p *WorkerPool) Start(ctx context.Context) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for _, worker := range p.workers {
 		go worker.Start(ctx)
 	}
 }
 
 func (p *WorkerPool) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for _, worker := range p.workers {
 		worker.Stop()
 	}
+}
+
+func (p *WorkerPool) Shutdown(timeout time.Duration) error {
+	p.Stop()
+
+	return p.engine.Shutdown(timeout)
 }
 
 func (p *WorkerPool) Size() int {

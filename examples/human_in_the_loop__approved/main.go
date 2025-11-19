@@ -145,7 +145,11 @@ func main() {
 	defer pool.Close()
 
 	engine := floxy.NewEngine(pool)
-	defer engine.Shutdown()
+	defer func() {
+		if err := engine.Shutdown(); err != nil {
+			log.Printf("Failed to shutdown engine: %v", err)
+		}
+	}()
 
 	// Run migrations
 	if err := floxy.RunMigrations(ctx, pool); err != nil {

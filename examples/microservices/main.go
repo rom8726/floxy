@@ -479,6 +479,8 @@ func main() {
 	log.Println("Shutting down services...")
 	for name, eng := range engines {
 		log.Printf("Stopping service %s", name)
-		eng.Shutdown()
+		if err := eng.Shutdown(); err != nil {
+			log.Printf("Failed to shutdown service %s: %v", name, err)
+		}
 	}
 }

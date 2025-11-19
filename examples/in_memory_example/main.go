@@ -137,7 +137,11 @@ func main() {
 		floxy.WithEngineStore(store),
 		floxy.WithEngineTxManager(txManager),
 	)
-	defer engine.Shutdown()
+	defer func() {
+		if err := engine.Shutdown(); err != nil {
+			log.Printf("Failed to shutdown engine: %v", err)
+		}
+	}()
 
 	engine.RegisterHandler(&ValidateHandler{})
 	engine.RegisterHandler(&ProcessPaymentHandler{})
