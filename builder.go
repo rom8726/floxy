@@ -201,9 +201,10 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 
 	for i, branchFn := range branches {
 		sub := &Builder{
-			name:    fmt.Sprintf("%s_branch_%d", builder.name, i+1),
-			version: builder.version,
-			steps:   make(map[string]*StepDefinition),
+			name:              fmt.Sprintf("%s_branch_%d", builder.name, i+1),
+			version:           builder.version,
+			steps:             make(map[string]*StepDefinition),
+			defaultMaxRetries: builder.defaultMaxRetries,
 		}
 
 		branchFn(sub)
@@ -444,9 +445,10 @@ func (builder *Builder) Condition(name, expr string, elseBranch func(elseBranchB
 
 	if elseBranch != nil {
 		sub := &Builder{
-			name:    builder.name + "_branch_else",
-			version: builder.version,
-			steps:   make(map[string]*StepDefinition),
+			name:              builder.name + "_branch_else",
+			version:           builder.version,
+			steps:             make(map[string]*StepDefinition),
+			defaultMaxRetries: builder.defaultMaxRetries,
 		}
 
 		elseBranch(sub)
