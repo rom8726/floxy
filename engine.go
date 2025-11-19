@@ -2161,18 +2161,18 @@ func (engine *Engine) rollbackStepChain(
 		}
 	}
 
-	// Continue with a previous step (traverse backwards)
-	if stepDef.Prev != "" && !isParallel {
-		if err := engine.rollbackStepChain(ctx, instanceID, stepDef.Prev, savePointName, def, stepMap, isParallel, depth+1); err != nil {
-			return err
-		}
-	}
-
-	// Now do the actual rollback (after traversing to the end)
+	// Do the actual rollback BEFORE traversing to previous steps (reverse order)
 	if step, exists := stepMap[currentStep]; exists &&
 		(step.Status == StepStatusCompleted || step.Status == StepStatusFailed) {
 		if err := engine.rollbackStep(ctx, step, def); err != nil {
 			return fmt.Errorf("rollback step %s: %w", currentStep, err)
+		}
+	}
+
+	// Continue with a previous step (traverse backwards)
+	if stepDef.Prev != "" && !isParallel {
+		if err := engine.rollbackStepChain(ctx, instanceID, stepDef.Prev, savePointName, def, stepMap, isParallel, depth+1); err != nil {
+			return err
 		}
 	}
 
