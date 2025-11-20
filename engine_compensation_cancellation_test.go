@@ -92,6 +92,9 @@ func Test_executeCompensationStep_HandlerSuccess_RolledBackAndEvent(t *testing.T
 	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil)
 	store.EXPECT().UpdateStep(mock.Anything, step.ID, StepStatusRolledBack, step.Input, (*string)(nil)).Return(nil)
 	store.EXPECT().LogEvent(mock.Anything, step.InstanceID, &step.ID, EventStepCompleted, mock.Anything).Return(nil).Maybe()
+	store.EXPECT().GetStepsByInstance(mock.Anything, step.InstanceID).Return(
+		[]WorkflowStep{{InstanceID: step.InstanceID, StepName: "B", Status: StepStatusCompleted}}, nil,
+	).Times(3)
 
 	instance := &WorkflowInstance{ID: step.InstanceID, WorkflowID: def.ID}
 	err := engine.executeCompensationStep(ctx, instance, step)
