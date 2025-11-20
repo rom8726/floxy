@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -1995,8 +1996,12 @@ func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, inst
 		}
 	}
 
+	sort.Slice(stepsToRollback, func(i, j int) bool {
+		return stepsToRollback[i].CreatedAt.After(stepsToRollback[j].CreatedAt)
+	})
+
 	// Mark each step as requiring compensation and enqueue for processing
-	for _, step := range stepsToRollback {
+	for idx, step := range stepsToRollback {
 		// Update step status to compensation with retry count = 0
 		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 1, StepStatusCompensation); err != nil {
 			slog.Warn("[floxy] failed to mark step for compensation", "step_id", step.ID, "error", err)
@@ -2004,7 +2009,8 @@ func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, inst
 		}
 
 		// Enqueue step for compensation processing
-		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, PriorityHigh, 0); err != nil {
+		delay := time.Millisecond * time.Duration(idx*10)
+		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, PriorityHigh, delay); err != nil {
 			slog.Warn("[floxy] failed to enqueue step for compensation", "step_id", step.ID, "error", err)
 			continue
 		}
