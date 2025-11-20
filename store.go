@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,14 +16,29 @@ import (
 
 var _ Store = (*StoreImpl)(nil)
 
+// workflowDefCacheEntry represents a cached workflow definition with expiration time
+type workflowDefCacheEntry struct {
+	def       *WorkflowDefinition
+	expiresAt time.Time
+}
+
 type StoreImpl struct {
 	db           Tx
 	agingEnabled bool
 	agingRate    float64
+
+	// Workflow definition cache
+	defCache    sync.Map // map[string]*workflowDefCacheEntry
+	defCacheTTL time.Duration
 }
 
 func NewStore(pool *pgxpool.Pool) *StoreImpl {
-	return &StoreImpl{db: pool, agingEnabled: true, agingRate: 0.5}
+	return &StoreImpl{
+		db:           pool,
+		agingEnabled: true,
+		agingRate:    0.5,
+		defCacheTTL:  time.Hour, // Default: 1 hour
+	}
 }
 
 func (store *StoreImpl) SetAgingEnabled(enabled bool) {
@@ -31,6 +47,29 @@ func (store *StoreImpl) SetAgingEnabled(enabled bool) {
 
 func (store *StoreImpl) SetAgingRate(rate float64) {
 	store.agingRate = rate
+}
+
+// SetDefinitionCacheTTL sets the TTL for workflow definition cache
+// Set to 0 to disable caching
+func (store *StoreImpl) SetDefinitionCacheTTL(ttl time.Duration) {
+	store.defCacheTTL = ttl
+	if ttl == 0 {
+		// If caching is disabled, clear the cache
+		store.ClearDefinitionCache()
+	}
+}
+
+// ClearDefinitionCache clears all cached workflow definitions
+func (store *StoreImpl) ClearDefinitionCache() {
+	store.defCache.Range(func(key, value interface{}) bool {
+		store.defCache.Delete(key)
+		return true
+	})
+}
+
+// InvalidateDefinitionCache removes a specific workflow definition from cache
+func (store *StoreImpl) InvalidateDefinitionCache(id string) {
+	store.defCache.Delete(id)
 }
 
 func (store *StoreImpl) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
@@ -48,12 +87,34 @@ RETURNING id, created_at`
 		return fmt.Errorf("marshal definition: %w", err)
 	}
 
-	return executor.QueryRow(ctx, query,
+	err = executor.QueryRow(ctx, query,
 		def.ID, def.Name, def.Version, definitionJSON, time.Now(),
 	).Scan(&def.ID, &def.CreatedAt)
+
+	if err == nil {
+		// Invalidate cache for this workflow definition
+		store.InvalidateDefinitionCache(def.ID)
+	}
+
+	return err
 }
 
 func (store *StoreImpl) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
+	// Check cache first (if caching is enabled)
+	if store.defCacheTTL > 0 {
+		if cached, ok := store.defCache.Load(id); ok {
+			entry := cached.(*workflowDefCacheEntry)
+			// Check if cache entry is still valid
+			if time.Now().Before(entry.expiresAt) {
+				// Return a copy to prevent external modifications
+				return entry.def, nil
+			}
+			// Cache expired, remove it
+			store.defCache.Delete(id)
+		}
+	}
+
+	// Cache miss or disabled - fetch from database
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -77,6 +138,15 @@ WHERE id = $1`
 
 	if err := json.Unmarshal(definitionJSON, &def.Definition); err != nil {
 		return nil, fmt.Errorf("unmarshal definition: %w", err)
+	}
+
+	// Store in cache (if caching is enabled)
+	if store.defCacheTTL > 0 {
+		entry := &workflowDefCacheEntry{
+			def:       &def,
+			expiresAt: time.Now().Add(store.defCacheTTL),
+		}
+		store.defCache.Store(id, entry)
 	}
 
 	return &def, nil
