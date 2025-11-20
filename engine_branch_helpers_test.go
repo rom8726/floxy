@@ -83,7 +83,7 @@ func newTestEngineWithStore(t *testing.T) (*Engine, *MockStore) {
 		Return(nil, ErrEntityNotFound).Maybe()
 
 	engine := NewEngine(nil, WithEngineTxManager(mockTxManager), WithEngineStore(mockStore))
-	t.Cleanup(func() { engine.Shutdown() })
+	t.Cleanup(func() { _ = engine.Shutdown() })
 
 	return engine, mockStore
 }

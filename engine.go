@@ -1597,22 +1597,29 @@ func (engine *Engine) handleStepFailure(
 		return fmt.Errorf("notify join steps: %w", err)
 	}
 
-	// Try to rollback to save point before handling failure
-	// (def was already loaded above if we needed to replace virtual steps)
+	// PREVENTIVE FIX: Stop parallel branches before rollback
+	// This is the first line of defense - try to prevent parallel steps from completing
+	// However, this doesn't guarantee success (step might already be executing in worker)
 	if def == nil {
 		var defErr error
 		def, defErr = engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
-		if defErr == nil {
-			if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
-				// Log rollback error but continue with failure handling
-				_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
-					KeyStepName: step.StepName,
-					KeyError:    fmt.Sprintf("rollback failed: %v", rollbackErr),
-				})
+		if defErr != nil {
+			def = nil
+		}
+	}
+
+	if def != nil {
+		// Check if this step is part of a fork branch
+		if engine.isStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+			// Stop all active steps in the same fork branch (parallel siblings)
+			if err := engine.stopParallelBranchesInFork(ctx, instance.ID, step.StepName, def); err != nil {
+				slog.Warn("[floxy] failed to stop parallel branches", "error", err)
 			}
 		}
-	} else {
-		// def was loaded earlier, use it for rollback
+	}
+
+	// Try to rollback to save point before handling failure
+	if def != nil {
 		if rollbackErr := engine.rollbackToSavePointOrRoot(ctx, instance.ID, step, def); rollbackErr != nil {
 			// Log rollback error but continue with failure handling
 			_ = engine.store.LogEvent(ctx, instance.ID, &step.ID, EventStepFailed, map[string]any{
@@ -2103,9 +2110,11 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 	// Check if there are any failed or rolled_back steps
 	// If so, the workflow should be marked as failed, not completed
 	if engine.hasFailedOrRolledBackSteps(ctx, instance.ID) {
-		// Enqueue completed steps after savepoint for compensation (saga pattern)
-		// This ensures rollback happens step-by-step through the queue, not in one transaction
-		// TODO: this is workaround, should be fixed in the future
+		// REACTIVE FIX: Enqueue completed steps after savepoint for compensation
+		// This is the second line of defense - handles steps that completed despite
+		// preventive measures (stopParallelBranchesInFork).
+		// Race condition scenario: worker already picked up step from queue before we marked it as skipped.
+		// DEFENSE IN DEPTH: Preventive (stop pending/running) + Reactive (rollback completed)
 		if err := engine.enqueueCompletedStepsForRollback(ctx, instance.ID); err != nil {
 			slog.Warn("[floxy] failed to enqueue completed steps for rollback", "error", err)
 			// Continue with marking workflow as failed even if enqueue fails
@@ -2578,6 +2587,78 @@ func (engine *Engine) findForkStepForParallelStep(ctx context.Context, instanceI
 	}
 
 	return ""
+}
+
+// isStepInForkBranch checks if a step is part of any fork/parallel branch.
+func (engine *Engine) isStepInForkBranch(
+	ctx context.Context,
+	instanceID int64,
+	stepName string,
+	def *WorkflowDefinition,
+) bool {
+	return engine.findForkStepForParallelStep(ctx, instanceID, stepName) != ""
+}
+
+// stopParallelBranchesInFork stops all active steps in parallel branches of the same fork.
+// PREVENTIVE MEASURE: Try to prevent parallel steps from completing during rollback.
+// Note: This doesn't guarantee success - steps might already be executing in workers.
+// The REACTIVE measure (enqueueCompletedStepsForRollback) handles steps that complete anyway.
+func (engine *Engine) stopParallelBranchesInFork(
+	ctx context.Context,
+	instanceID int64,
+	failedStepName string,
+	def *WorkflowDefinition,
+) error {
+	// Find the fork step that contains this failed step
+	forkStepName := engine.findForkStepForParallelStep(ctx, instanceID, failedStepName)
+	if forkStepName == "" {
+		// Not in a fork, nothing to stop
+		return nil
+	}
+
+	forkStepDef, ok := def.Definition.Steps[forkStepName]
+	if !ok || forkStepDef.Type != StepTypeFork {
+		return nil
+	}
+
+	// Get all steps in this instance
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get steps: %w", err)
+	}
+
+	// Find all active steps (pending/running) in parallel branches
+	for _, step := range steps {
+		// Skip the failed step itself
+		if step.StepName == failedStepName {
+			continue
+		}
+
+		// Check if this step is in a parallel branch
+		if !engine.isStepInParallelBranch(step.StepName, forkStepDef, def) {
+			continue
+		}
+
+		// Only stop active steps (pending/running)
+		if step.Status != StepStatusPending && step.Status != StepStatusRunning {
+			continue
+		}
+
+		// Mark step as skipped
+		skipMsg := "Skipped due to parallel branch failure"
+		if err := engine.store.UpdateStep(ctx, step.ID, StepStatusSkipped, nil, &skipMsg); err != nil {
+			slog.Warn("[floxy] failed to skip step in parallel branch", "step_id", step.ID, "error", err)
+			continue
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName: step.StepName,
+			KeyReason:   "parallel_branch_failure",
+			KeyMessage:  skipMsg,
+		})
+	}
+
+	return nil
 }
 
 // isStepInParallelBranch checks if a step belongs to one of the parallel branches
