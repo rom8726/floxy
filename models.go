@@ -105,20 +105,20 @@ type StepDefinition struct {
 	Type          StepType       `json:"type"`
 	Handler       string         `json:"handler"`
 	MaxRetries    int            `json:"max_retries"`
-	Next          []string       `json:"next"`
-	Prev          string         `json:"prev"`           // previous step in the chain
-	Else          string         `json:"else,omitempty"` // alternative step for condition steps for false branch
-	OnFailure     string         `json:"on_failure"`     // compensation step
-	Condition     string         `json:"condition"`      // for conditional transitions
-	Parallel      []string       `json:"parallel"`       // for parallel steps (fork)
-	WaitFor       []string       `json:"wait_for"`       // for join, we are waiting for these steps to be completed
-	JoinStrategy  JoinStrategy   `json:"join_strategy"`  // "all" (default) or "any"
-	Metadata      map[string]any `json:"metadata"`
+	Next          []string       `json:"next,omitempty"`
+	Prev          string         `json:"prev,omitempty"`          // previous step in the chain
+	Else          string         `json:"else,omitempty"`          // alternative step for condition steps for false branch
+	OnFailure     string         `json:"on_failure,omitempty"`    // compensation step
+	Condition     string         `json:"condition,omitempty"`     // for conditional transitions
+	Parallel      []string       `json:"parallel,omitempty"`      // for parallel steps (fork)
+	WaitFor       []string       `json:"wait_for,omitempty"`      // for join, we are waiting for these steps to be completed
+	JoinStrategy  JoinStrategy   `json:"join_strategy,omitempty"` // "all" (default) or "any"
+	Metadata      map[string]any `json:"metadata,omitempty"`
 	NoIdempotent  bool           `json:"no_idempotent"`
-	Delay         time.Duration  `json:"delay"`
-	RetryDelay    time.Duration  `json:"retry_delay"`
-	RetryStrategy RetryStrategy  `json:"retry_strategy"` // Strategy for retry delays: fixed, exponential, linear
-	Timeout       time.Duration  `json:"timeout"`
+	Delay         time.Duration  `json:"delay,omitempty"`
+	RetryDelay    time.Duration  `json:"retry_delay,omitempty"`
+	RetryStrategy RetryStrategy  `json:"retry_strategy,omitempty"` // Strategy for retry delays: fixed, exponential, linear
+	Timeout       time.Duration  `json:"timeout,omitempty"`
 }
 
 type WorkflowInstance struct {
