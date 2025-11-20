@@ -368,6 +368,8 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 
 			return engine.executeCompensationStep(ctx, instance, step)
+		} else if step.Status == StepStatusRolledBack {
+			return nil
 		}
 
 		// Distributed handlers: if this is a task step and no local handler is registered,
