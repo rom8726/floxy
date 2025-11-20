@@ -1881,6 +1881,73 @@ func (engine *Engine) hasFailedOrRolledBackSteps(ctx context.Context, instanceID
 	return false
 }
 
+// rollbackCompletedStepsAfterSavePoint rolls back all completed steps that were created after the last savepoint.
+// This is needed when some parallel branches have failed/rolled_back steps and other branches have completed steps
+// that should also be rolled back to maintain consistency.
+func (engine *Engine) rollbackCompletedStepsAfterSavePoint(ctx context.Context, instanceID int64) error {
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get steps by instance: %w", err)
+	}
+
+	// Find the last savepoint by created_at
+	var lastSavePoint *WorkflowStep
+	for i := range steps {
+		step := &steps[i]
+		if step.StepType == StepTypeSavePoint {
+			if lastSavePoint == nil || step.CreatedAt.After(lastSavePoint.CreatedAt) {
+				lastSavePoint = step
+			}
+		}
+	}
+
+	// Get workflow definition for rollback
+	instance, err := engine.store.GetInstance(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get instance: %w", err)
+	}
+
+	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow definition: %w", err)
+	}
+
+	// Find all completed steps created after the last savepoint
+	var stepsToRollback []*WorkflowStep
+	for i := range steps {
+		step := &steps[i]
+		// Only rollback completed steps
+		if step.Status != StepStatusCompleted {
+			continue
+		}
+		// If there's a savepoint, only rollback steps created after it
+		if lastSavePoint != nil && step.CreatedAt.After(lastSavePoint.CreatedAt) {
+			stepsToRollback = append(stepsToRollback, step)
+		} else if lastSavePoint == nil {
+			// If no savepoint, rollback all completed steps
+			stepsToRollback = append(stepsToRollback, step)
+		}
+	}
+
+	// Rollback each completed step
+	for _, step := range stepsToRollback {
+		_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
+			KeyStepName: step.StepName,
+			KeyReason:   "rollback_completed_after_failure",
+		})
+
+		if err := engine.rollbackStep(ctx, step, def); err != nil {
+			// Log but continue rolling back other steps
+			_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
+				KeyStepName: step.StepName,
+				KeyError:    fmt.Sprintf("rollback failed: %v", err),
+			})
+		}
+	}
+
+	return nil
+}
+
 func (engine *Engine) enqueueNextSteps(
 	ctx context.Context,
 	instanceID int64,
@@ -1960,6 +2027,14 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 	// Check if there are any failed or rolled_back steps
 	// If so, the workflow should be marked as failed, not completed
 	if engine.hasFailedOrRolledBackSteps(ctx, instance.ID) {
+		// Rollback any completed steps that were created after savepoint
+		// This handles the case where parallel branches have some failed/rolled_back steps
+		// and other completed steps that should also be rolled back
+		if err := engine.rollbackCompletedStepsAfterSavePoint(ctx, instance.ID); err != nil {
+			slog.Warn("[floxy] failed to rollback completed steps after savepoint", "error", err)
+			// Continue with marking workflow as failed even if rollback fails
+		}
+
 		errMsg := "workflow has failed or rolled back steps"
 		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg); err != nil {
 			return fmt.Errorf("update instance status to failed: %w", err)
