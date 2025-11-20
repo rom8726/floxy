@@ -4,6 +4,7 @@ const (
 	// Event types
 	EventWorkflowStarted           = "workflow_started"
 	EventWorkflowCompleted         = "workflow_completed"
+	EventWorkflowFailed            = "workflow_failed"
 	EventWorkflowCancelled         = "workflow_cancelled"
 	EventWorkflowAborted           = "workflow_aborted"
 	EventStepStarted               = "step_started"

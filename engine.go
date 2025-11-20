@@ -1866,6 +1866,21 @@ func (engine *Engine) hasUnfinishedSteps(ctx context.Context, instanceID int64) 
 	return false
 }
 
+func (engine *Engine) hasFailedOrRolledBackSteps(ctx context.Context, instanceID int64) bool {
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return false
+	}
+
+	for _, step := range steps {
+		if step.Status == StepStatusFailed || step.Status == StepStatusRolledBack {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (engine *Engine) enqueueNextSteps(
 	ctx context.Context,
 	instanceID int64,
@@ -1942,6 +1957,32 @@ func (engine *Engine) createFirstStep(ctx context.Context, instance *WorkflowIns
 }
 
 func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowInstance, output json.RawMessage) error {
+	// Check if there are any failed or rolled_back steps
+	// If so, the workflow should be marked as failed, not completed
+	if engine.hasFailedOrRolledBackSteps(ctx, instance.ID) {
+		errMsg := "workflow has failed or rolled back steps"
+		if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusFailed, nil, &errMsg); err != nil {
+			return fmt.Errorf("update instance status to failed: %w", err)
+		}
+
+		_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowFailed, map[string]any{
+			KeyWorkflowID: instance.WorkflowID,
+			KeyReason:     errMsg,
+		})
+
+		// PLUGIN HOOK: OnWorkflowFailed
+		if engine.pluginManager != nil {
+			finalInstance, _ := engine.store.GetInstance(ctx, instance.ID)
+			if finalInstance != nil {
+				if errPlugin := engine.pluginManager.ExecuteWorkflowFailed(ctx, finalInstance); errPlugin != nil {
+					slog.Warn("[floxy] plugin hook OnWorkflowFailed failed", "error", errPlugin)
+				}
+			}
+		}
+
+		return nil
+	}
+
 	if err := engine.store.UpdateInstanceStatus(ctx, instance.ID, StatusCompleted, output, nil); err != nil {
 		return fmt.Errorf("update instance status: %w", err)
 	}
