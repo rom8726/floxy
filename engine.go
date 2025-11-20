@@ -960,6 +960,34 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 		KeyReason:     "compensation_success",
 	})
 
+	// Check if all compensation steps are finished
+	// If no more unfinished steps and no compensation steps, finalize workflow status
+	if !engine.hasUnfinishedSteps(ctx, step.InstanceID) && !engine.hasStepsInCompensation(ctx, step.InstanceID) {
+		// All compensation done, now check final status
+		if engine.hasFailedOrRolledBackSteps(ctx, step.InstanceID) {
+			// Mark workflow as failed
+			errMsg := "workflow has failed or rolled back steps"
+			if err := engine.store.UpdateInstanceStatus(ctx, step.InstanceID, StatusFailed, nil, &errMsg); err != nil {
+				return fmt.Errorf("update instance status to failed: %w", err)
+			}
+
+			_ = engine.store.LogEvent(ctx, step.InstanceID, nil, EventWorkflowFailed, map[string]any{
+				KeyWorkflowID: instance.WorkflowID,
+				KeyReason:     errMsg,
+			})
+
+			// PLUGIN HOOK: OnWorkflowFailed
+			if engine.pluginManager != nil {
+				finalInstance, _ := engine.store.GetInstance(ctx, step.InstanceID)
+				if finalInstance != nil {
+					if errPlugin := engine.pluginManager.ExecuteWorkflowFailed(ctx, finalInstance); errPlugin != nil {
+						slog.Warn("[floxy] plugin hook OnWorkflowFailed failed", "error", errPlugin)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1881,10 +1909,24 @@ func (engine *Engine) hasFailedOrRolledBackSteps(ctx context.Context, instanceID
 	return false
 }
 
-// rollbackCompletedStepsAfterSavePoint rolls back all completed steps that were created after the last savepoint.
-// This is needed when some parallel branches have failed/rolled_back steps and other branches have completed steps
-// that should also be rolled back to maintain consistency.
-func (engine *Engine) rollbackCompletedStepsAfterSavePoint(ctx context.Context, instanceID int64) error {
+func (engine *Engine) hasStepsInCompensation(ctx context.Context, instanceID int64) bool {
+	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
+	if err != nil {
+		return false
+	}
+
+	for _, step := range steps {
+		if step.Status == StepStatusCompensation {
+			return true
+		}
+	}
+
+	return false
+}
+
+// enqueueCompletedStepsForRollback finds completed steps after savepoint and enqueues them for compensation.
+// This follows the saga pattern: rollback happens step-by-step through the queue, not in one transaction.
+func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, instanceID int64) error {
 	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("get steps by instance: %w", err)
@@ -1901,7 +1943,7 @@ func (engine *Engine) rollbackCompletedStepsAfterSavePoint(ctx context.Context, 
 		}
 	}
 
-	// Get workflow definition for rollback
+	// Get workflow definition
 	instance, err := engine.store.GetInstance(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("get instance: %w", err)
@@ -1916,33 +1958,61 @@ func (engine *Engine) rollbackCompletedStepsAfterSavePoint(ctx context.Context, 
 	var stepsToRollback []*WorkflowStep
 	for i := range steps {
 		step := &steps[i]
-		// Only rollback completed steps
+		// Only process completed steps that need rollback
 		if step.Status != StepStatusCompleted {
 			continue
 		}
 		// If there's a savepoint, only rollback steps created after it
 		if lastSavePoint != nil && step.CreatedAt.After(lastSavePoint.CreatedAt) {
-			stepsToRollback = append(stepsToRollback, step)
+			// Check if step has compensation handler defined
+			stepDef, ok := def.Definition.Steps[step.StepName]
+			if ok && stepDef.OnFailure != "" {
+				stepsToRollback = append(stepsToRollback, step)
+			} else {
+				// No compensation handler, just mark as rolled_back
+				if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+					slog.Warn("[floxy] failed to mark step as rolled_back", "step_id", step.ID, "error", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepCompleted, map[string]any{
+					KeyStepName: step.StepName,
+					KeyReason:   "rolled_back_no_compensation",
+				})
+			}
 		} else if lastSavePoint == nil {
 			// If no savepoint, rollback all completed steps
-			stepsToRollback = append(stepsToRollback, step)
+			stepDef, ok := def.Definition.Steps[step.StepName]
+			if ok && stepDef.OnFailure != "" {
+				stepsToRollback = append(stepsToRollback, step)
+			} else {
+				if err := engine.store.UpdateStep(ctx, step.ID, StepStatusRolledBack, step.Input, nil); err != nil {
+					slog.Warn("[floxy] failed to mark step as rolled_back", "step_id", step.ID, "error", err)
+				}
+				_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepCompleted, map[string]any{
+					KeyStepName: step.StepName,
+					KeyReason:   "rolled_back_no_compensation",
+				})
+			}
 		}
 	}
 
-	// Rollback each completed step
+	// Mark each step as requiring compensation and enqueue for processing
 	for _, step := range stepsToRollback {
-		_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
-			KeyStepName: step.StepName,
-			KeyReason:   "rollback_completed_after_failure",
-		})
-
-		if err := engine.rollbackStep(ctx, step, def); err != nil {
-			// Log but continue rolling back other steps
-			_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepFailed, map[string]any{
-				KeyStepName: step.StepName,
-				KeyError:    fmt.Sprintf("rollback failed: %v", err),
-			})
+		// Update step status to compensation with retry count = 0
+		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 1, StepStatusCompensation); err != nil {
+			slog.Warn("[floxy] failed to mark step for compensation", "step_id", step.ID, "error", err)
+			continue
 		}
+
+		// Enqueue step for compensation processing
+		if err := engine.store.EnqueueStep(ctx, instanceID, &step.ID, PriorityHigh, 0); err != nil {
+			slog.Warn("[floxy] failed to enqueue step for compensation", "step_id", step.ID, "error", err)
+			continue
+		}
+
+		_ = engine.store.LogEvent(ctx, instanceID, &step.ID, EventStepStarted, map[string]any{
+			KeyStepName: step.StepName,
+			KeyReason:   "enqueued_for_rollback_after_failure",
+		})
 	}
 
 	return nil
@@ -2027,12 +2097,24 @@ func (engine *Engine) completeWorkflow(ctx context.Context, instance *WorkflowIn
 	// Check if there are any failed or rolled_back steps
 	// If so, the workflow should be marked as failed, not completed
 	if engine.hasFailedOrRolledBackSteps(ctx, instance.ID) {
-		// Rollback any completed steps that were created after savepoint
-		// This handles the case where parallel branches have some failed/rolled_back steps
-		// and other completed steps that should also be rolled back
-		if err := engine.rollbackCompletedStepsAfterSavePoint(ctx, instance.ID); err != nil {
-			slog.Warn("[floxy] failed to rollback completed steps after savepoint", "error", err)
-			// Continue with marking workflow as failed even if rollback fails
+		// Enqueue completed steps after savepoint for compensation (saga pattern)
+		// This ensures rollback happens step-by-step through the queue, not in one transaction
+		// TODO: this is workaround, should be fixed in the future
+		if err := engine.enqueueCompletedStepsForRollback(ctx, instance.ID); err != nil {
+			slog.Warn("[floxy] failed to enqueue completed steps for rollback", "error", err)
+			// Continue with marking workflow as failed even if enqueue fails
+		}
+
+		// Check if there are any steps enqueued for compensation
+		// If yes, don't mark workflow as failed yet - let compensation finish first
+		hasCompensationSteps := engine.hasStepsInCompensation(ctx, instance.ID)
+		if hasCompensationSteps {
+			// Compensation is in progress, don't mark as failed yet
+			_ = engine.store.LogEvent(ctx, instance.ID, nil, EventWorkflowFailed, map[string]any{
+				KeyWorkflowID: instance.WorkflowID,
+				KeyReason:     "compensation_in_progress",
+			})
+			return nil
 		}
 
 		errMsg := "workflow has failed or rolled back steps"
