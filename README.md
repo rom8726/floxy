@@ -428,6 +428,10 @@ JoinStep("join", []string{"branch1_step1", "branch2_step1"}, floxy.JoinStrategyA
 
 See `examples/condition/main.go` for a demonstration of this issue.
 
+### Rollback for nested Fork/Join branches
+
+When using nested `Fork` branches, rollback is not supported.
+
 ## Installation
 
 ```bash
