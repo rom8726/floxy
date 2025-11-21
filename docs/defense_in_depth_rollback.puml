@@ -1,0 +1,271 @@
+@startuml Defense in Depth Rollback
+
+title Defense in Depth Rollback Strategy
+
+participant "Engine" as E
+participant "Store" as S
+participant "Database" as DB
+
+note over E
+**Defense in Depth Rollback**
+
+A two-layer protection strategy ensuring
+workflow consistency in parallel execution:
+
+1. **Preventive Layer**: Stop active parallel branches
+2. **Reactive Layer**: Saga compensation via queue
+end note
+
+== Scenario: Parallel Workflow Execution ==
+
+note over E
+Workflow: fork(branch1, branch2) -> join
+- branch1: reserve-inventory-1 -> ship-1
+- branch2: reserve-inventory-2 -> ship-2
+end note
+
+E -> S: CreateStep(reserve-inventory-1, status=pending)
+S --> E: OK
+E -> S: CreateStep(reserve-inventory-2, status=pending)
+S --> E: OK
+E -> S: EnqueueStep(reserve-inventory-1)
+S --> E: OK
+E -> S: EnqueueStep(reserve-inventory-2)
+S --> E: OK
+
+par Parallel Execution
+    E -> E: Execute reserve-inventory-1
+    E -> S: UpdateStep(reserve-inventory-1, status=completed)
+    S --> E: OK
+    E -> S: EnqueueStep(ship-1)
+    S --> E: OK
+else
+    E -> E: Execute reserve-inventory-2
+    E -> S: UpdateStep(reserve-inventory-2, status=running)
+    S --> E: OK
+    note right: reserve-inventory-2 is processing...
+end
+
+== Layer 1: Preventive Stop (Immediate) ==
+
+note over E
+reserve-inventory-2 FAILS after retries
+Engine detects failure in fork branch
+end note
+
+E -> E: handleStepFailure(reserve-inventory-2)
+E -> E: isStepInForkBranch(reserve-inventory-2)
+note right: Returns true - step is in fork
+
+E -> E: stopParallelBranchesInFork()
+note right
+Find all sibling steps in same fork
+and stop pending/running steps
+end note
+
+E -> S: GetStepsByInstance()
+S -> DB: SELECT * FROM workflow_steps\nWHERE instance_id = ?
+DB --> S: WorkflowStep[]
+S --> E: WorkflowStep[]
+
+E -> E: Find fork step (nested-parallel)
+E -> E: Find all steps in parallel branches
+E -> E: Filter: sibling steps != reserve-inventory-2
+
+loop For each sibling step (ship-1, ship-2)
+    alt Step status is pending or running
+        E -> S: UpdateStep(stepID, status=skipped)
+        S -> DB: UPDATE workflow_steps\nSET status = 'skipped',\nerror = 'Skipped due to parallel branch failure'\nWHERE id = ?
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> S: LogEvent(step_failed)
+        S -> DB: INSERT INTO workflow_events\n(event_type='step_failed',\nreason='workflow_stopped')
+        DB --> S: OK
+        S --> E: OK
+        
+        note right
+        ship-1: pending -> skipped
+        ship-2: pending -> skipped
+        Race condition prevented!
+        end note
+    else Step is completed
+        note right
+        If step completed before we could stop it,
+        Layer 2 (Saga) will handle compensation
+        end note
+    end
+end
+
+== Layer 2: Reactive Saga Compensation (Queued) ==
+
+note over E
+Now compensate any COMPLETED steps
+that slipped through Layer 1
+end note
+
+E -> E: enqueueCompletedStepsForRollback()
+
+E -> S: GetLastSavepoint(instanceID)
+S -> DB: SELECT * FROM workflow_steps\nWHERE instance_id = ?\nAND step_type = 'save_point'\nORDER BY created_at DESC LIMIT 1
+DB --> S: SavePointStep / nil
+S --> E: SavePointStep / nil
+
+E -> S: GetStepsByInstance()
+S -> DB: SELECT * FROM workflow_steps\nWHERE instance_id = ?
+DB --> S: WorkflowStep[]
+S --> E: WorkflowStep[]
+
+E -> E: Filter completed steps after savepoint
+note right
+Find steps with status=completed
+created_at > savepoint.created_at
+end note
+
+E -> E: Sort by created_at DESC
+note right
+Compensation order: newest -> oldest
+[reserve-inventory-1]
+end note
+
+loop For each completed step (reverse chronological)
+    alt Step has OnFailure handler
+        E -> S: UpdateStepCompensationRetry(stepID, retryCount=1, status=compensation)
+        S -> DB: UPDATE workflow_steps\nSET compensation_retry_count = 1,\nstatus = 'compensation'\nWHERE id = ?
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> S: EnqueueStep(stepID, priority=high, delay=idx*10ms)
+        S -> DB: INSERT INTO workflow_queue\n(instance_id, step_id, priority, scheduled_at)\nVALUES (?, ?, 100, NOW() + delay)
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> S: LogEvent(compensation_enqueued)
+        S -> DB: INSERT INTO workflow_events\n(event_type='compensation_enqueued')
+        DB --> S: OK
+        S --> E: OK
+        
+        note right
+        reserve-inventory-1:
+        completed -> compensation (enqueued)
+        end note
+    else No OnFailure handler
+        E -> S: UpdateStep(stepID, status=rolled_back)
+        S -> DB: UPDATE workflow_steps\nSET status = 'rolled_back'\nWHERE id = ?
+        DB --> S: OK
+        S --> E: OK
+        
+        note right
+        Step marked rolled_back immediately
+        (no compensation needed)
+        end note
+    end
+end
+
+E -> E: hasStepsInCompensation()
+alt Steps in compensation exist
+    note over E
+    Workflow status remains as-is
+    until all compensations complete
+    end note
+else No steps in compensation
+    E -> S: UpdateInstanceStatus(status=failed)
+    S -> DB: UPDATE workflow_instances\nSET status = 'failed'\nWHERE id = ?
+    DB --> S: OK
+    S --> E: OK
+end
+
+== Compensation Execution (Saga Worker) ==
+
+note over E
+Worker processes compensation steps
+from queue sequentially
+end note
+
+E -> S: ExecuteNext()
+S -> DB: DequeueStep()
+note right: Returns compensation step
+DB --> S: QueueItem(reserve-inventory-1)
+S --> E: QueueItem
+
+E -> E: executeCompensationStep(reserve-inventory-1)
+E -> E: Execute OnFailure handler
+
+alt Compensation Success
+    E -> S: UpdateStep(reserve-inventory-1, status=rolled_back)
+    S -> DB: UPDATE workflow_steps\nSET status = 'rolled_back'\nWHERE id = ?
+    DB --> S: OK
+    S --> E: OK
+    
+    E -> S: LogEvent(compensation_success)
+    S -> DB: INSERT INTO workflow_events\n(event_type='compensation_success')
+    DB --> S: OK
+    S --> E: OK
+    
+    E -> E: hasStepsInCompensation()
+    E -> E: hasUnfinishedSteps()
+    
+    alt All compensations done AND no unfinished steps
+        E -> S: UpdateInstanceStatus(status=failed)
+        S -> DB: UPDATE workflow_instances\nSET status = 'failed'\nWHERE id = ?
+        DB --> S: OK
+        S --> E: OK
+        
+        note over E
+        Workflow finalized as failed
+        All compensations successful
+        end note
+    end
+    
+else Compensation Failure
+    alt Can Retry (RetryCount < MaxRetries)
+        E -> S: UpdateStepCompensationRetry(stepID, retryCount++, status=compensation)
+        S -> DB: UPDATE workflow_steps\nSET compensation_retry_count = compensation_retry_count + 1
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> S: EnqueueStep(stepID, priority=high)
+        S -> DB: INSERT INTO workflow_queue
+        DB --> S: OK
+        S --> E: OK
+        
+        note right: Retry compensation
+    else Max Retries Exceeded
+        E -> S: UpdateStep(stepID, status=failed)
+        S -> DB: UPDATE workflow_steps\nSET status = 'failed'
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> S: CreateDeadLetterRecord(stepID)
+        S -> DB: INSERT INTO workflow_dlq
+        DB --> S: OK
+        S --> E: OK
+        
+        note right: Send to DLQ for manual recovery
+    end
+end
+
+== Result: Consistent Workflow State ==
+
+note over E, DB
+**Final State:**
+
+- reserve-inventory-1: rolled_back (compensated)
+- reserve-inventory-2: failed (triggered rollback)
+- ship-1: skipped (prevented by Layer 1)
+- ship-2: skipped (prevented by Layer 1)
+- join: rolled_back (no completed dependencies)
+- workflow: failed
+
+**No inconsistent completed steps remain!**
+
+**Defense in Depth Benefits:**
+- Layer 1 prevents most race conditions
+- Layer 2 catches any that slip through
+- Saga pattern maintains consistency
+- Sequential compensation via queue
+- Reliable, testable, maintainable
+end note
+
+@enduml
+

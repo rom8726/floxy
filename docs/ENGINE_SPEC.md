@@ -284,6 +284,188 @@ builder.
 
 If `ship_order` fails, rollback occurs only up to `after_reserve`.
 
+### 5.5 Defense in Depth Rollback
+
+Floxy Engine implements a **two-layer protection strategy** to ensure workflow consistency during parallel execution with failures:
+
+#### 5.5.1 Problem Statement
+
+In parallel workflows (fork/join), a race condition can occur:
+
+1. Step A in branch 1 fails and triggers rollback
+2. Step B in branch 2 is already `running` or `pending`
+3. Step B completes **after** rollback is initiated
+4. Result: Workflow has `rolled_back` and `completed` steps simultaneously (inconsistent state)
+
+#### 5.5.2 Two-Layer Solution
+
+**Layer 1: Preventive (Immediate Stop)**
+
+When a step fails in a fork branch, the engine **immediately** stops all active sibling steps in parallel branches:
+
+```go
+func (engine *Engine) handleStepFailure(ctx context.Context, ...) error {
+    // ... existing retry logic ...
+    
+    // Defense Layer 1: Stop parallel branches preventively
+    if engine.isStepInForkBranch(ctx, instance.ID, step.StepName, def) {
+        if err := engine.stopParallelBranchesInFork(ctx, instance.ID, step.StepName, def); err != nil {
+            slog.Warn("[floxy] failed to stop parallel branches", "error", err)
+        }
+    }
+    
+    // Layer 2: Saga compensation (reactive)
+    // ... existing rollback logic ...
+}
+```
+
+The `stopParallelBranchesInFork` function:
+
+- Finds all steps in sibling parallel branches
+- Marks `pending` and `running` steps as `skipped`
+- Logs events for traceability
+- **Prevents** most race conditions before they occur
+
+**Layer 2: Reactive (Saga Compensation)**
+
+After preventive stop, the engine enqueues compensation for any `completed` steps that may have slipped through:
+
+```go
+func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, instanceID int64) error {
+    // Find last savepoint (if any)
+    savepoint := engine.store.GetLastSavepoint(ctx, instanceID)
+    
+    // Get all steps after savepoint
+    steps := engine.store.GetStepsByInstance(ctx, instanceID)
+    
+    // Filter completed steps created after savepoint
+    var stepsToRollback []WorkflowStep
+    for _, step := range steps {
+        if step.Status == StepStatusCompleted && step.CreatedAt.After(savepoint.CreatedAt) {
+            stepsToRollback = append(stepsToRollback, step)
+        }
+    }
+    
+    // Sort by created_at DESC (newest first)
+    sort.Slice(stepsToRollback, func(i, j int) bool {
+        return stepsToRollback[i].CreatedAt.After(stepsToRollback[j].CreatedAt)
+    })
+    
+    // Enqueue compensation for each step
+    for idx, step := range stepsToRollback {
+        engine.store.UpdateStepCompensationRetry(ctx, step.ID, 1, StepStatusCompensation)
+        delay := time.Millisecond * time.Duration(idx*10)
+        engine.store.EnqueueStep(ctx, instanceID, &step.ID, PriorityHigh, delay)
+    }
+    
+    return nil
+}
+```
+
+This approach:
+
+- Uses the **Saga pattern** for reliable compensation
+- Processes compensations **sequentially** through the queue
+- Respects `MaxRetries` and `OnFailure` handlers
+- Supports **partial rollback** via savepoints
+- **Defers** final workflow status until all compensations complete
+
+#### 5.5.3 Workflow Status Finalization
+
+The workflow is marked as `failed` only when:
+
+1. All compensation steps are processed (`status = 'rolled_back'`)
+2. No steps remain in `status = 'compensation'`
+3. No unfinished steps exist
+
+This ensures deterministic and consistent final state.
+
+#### 5.5.4 Example Scenario
+
+**Workflow Definition:**
+
+```go
+builder.Fork("parallel-ops", func(branch1 *Builder) {
+    branch1.Step("reserve-inventory-1", "ReserveHandler").
+           OnFailure("release-inventory-1", "ReleaseHandler").
+        Then("ship-1", "ShipHandler")
+}, func(branch2 *Builder) {
+    branch2.Step("reserve-inventory-2", "ReserveHandler").
+           OnFailure("release-inventory-2", "ReleaseHandler").
+        Then("ship-2", "ShipHandler")
+}).
+Join("join-shipping", JoinStrategyAll)
+```
+
+**Execution Flow with Failure:**
+
+1. `reserve-inventory-1` → `completed`
+2. `reserve-inventory-2` → `running`
+3. `ship-1` → `pending` (enqueued)
+4. `reserve-inventory-2` **fails** after retries
+
+**Defense in Depth Actions:**
+
+**Layer 1 (Preventive):**
+
+- `ship-1`: `pending` → `skipped` (immediate)
+- `ship-2`: `pending` → `skipped` (immediate)
+
+**Layer 2 (Reactive Saga):**
+
+- `reserve-inventory-1`: `completed` → `compensation` (enqueued)
+- Compensation handler `release-inventory-1` executes
+- `reserve-inventory-1`: `compensation` → `rolled_back`
+- `reserve-inventory-2`: Already `failed`, no compensation needed
+
+**Final State:**
+
+- `reserve-inventory-1`: `rolled_back` ✅
+- `reserve-inventory-2`: `failed` ✅
+- `ship-1`: `skipped` ✅
+- `ship-2`: `skipped` ✅
+- `join-shipping`: `rolled_back` ✅
+- **Workflow**: `failed` ✅
+
+**No inconsistent `completed` steps remain.**
+
+#### 5.5.5 Benefits
+
+| Aspect | Benefit |
+|--------|---------|
+| **Consistency** | Prevents inconsistent workflow states |
+| **Race Condition Handling** | Two layers catch edge cases |
+| **Saga Pattern** | Reliable, sequential compensation |
+| **Testability** | Each layer can be tested independently |
+| **Maintainability** | Clear separation of concerns |
+| **Observability** | All actions logged as events |
+| **Reliability** | Works under chaos testing conditions |
+
+#### 5.5.6 Chaos Testing
+
+The Defense in Depth strategy was validated through chaos testing with the following scenarios:
+
+- Parallel workflow execution with random failures
+- High concurrency (100+ parallel workers)
+- Network delays and database latency simulation
+- Random step execution timing
+
+Before Defense in Depth:
+```
+WARN execution failed (continuing) scenario=floxy-stress-test iteration=100 
+error="validator failed-instances-consistency failed: found 2 failed instances 
+with inconsistent step states: [instance_id=69 workflow_id=nested-workflow-v1 
+(latest savepoint_id=477): non-rolled_back steps created after savepoint: 
+[step_id=480 step_name=reserve-inventory-2 status=completed]]"
+```
+
+After Defense in Depth:
+```
+- All chaos tests pass
+- Zero inconsistent states detected
+- All workflows terminate in valid states
+```
+
 ---
 
 ## 6. Queue & Event System
@@ -1135,6 +1317,7 @@ Floxy ensures deterministic workflow execution:
 | Retries exhausted          | Step → `failed`, rollback to SavePoint                    | Step → `paused`, instance → `dlq`, queue cleared           |
 | No `OnFailure` defined     | Step → `rolled_back`                                     | Step → `paused`, instance → `dlq`, queue cleared          |
 | SavePoint found            | Rollback stops at save point                             | Not applicable (no rollback in DLQ mode)                  |
+| Parallel branch failure    | **Layer 1**: Sibling steps → `skipped` (preventive)<br>**Layer 2**: Completed steps → `compensation` (saga) | Same as Classic Saga |
 | Cancel operation           | Step → `skipped`, compensation executed                   | Step → `skipped`, compensation executed (respects mode)   |
 | Abort operation            | Step → `skipped`, no compensation                        | Step → `skipped`, no compensation                         |
 | DLQ enabled + fork/join    | Standard fork/join behavior                              | Parallel branches complete, join → `paused` if instance in `dlq` |
@@ -1208,6 +1391,7 @@ This example demonstrates:
 * **Event-Driven Logging** — every state change produces a durable event.
 * **Partial Rollback Support** — rollback to `save_point` when defined.
 * **Smart Branch Rollback** — only compensates executed branches in condition steps.
+* **Defense in Depth Rollback** — two-layer protection (preventive + reactive) ensures consistency in parallel flows.
 * **Type-Safe Conditions** — automatic type conversion for numeric comparisons.
 * **Template-Based Logic** — conditions use familiar Go template syntax.
 * **Workflow Control** — external cancellation and abortion capabilities.
@@ -1224,7 +1408,9 @@ Floxy Runtime provides a consistent, lightweight saga orchestration engine:
 * **transactional** — saga pattern with compensating transactions,
 * **idempotency-aware** — supports both idempotent and one-shot operations,
 * **conditionally intelligent** — smart branching and rollback for complex workflows,
-* **parallel-safe** — proper handling of condition steps in concurrent flows,
+* **parallel-safe** — defense in depth strategy prevents race conditions in concurrent flows,
+* **race-condition resilient** — two-layer protection (preventive stop + reactive saga compensation),
+* **chaos-tested** — validated under high-concurrency stress scenarios,
 * **human-integrated** — interactive workflow steps with decision tracking,
 * **controllable** — external cancellation and abortion capabilities,
 * **resilient** — dead letter queue for handling transient failures,

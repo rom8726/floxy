@@ -107,44 +107,78 @@ else Step Failure
         S -> DB: UPDATE workflow_instances SET status='dlq'
         DB --> S: OK
         S --> E: OK
-    else Rollback Process
-        == Rollback Process ==
+    else Rollback Process (Defense in Depth)
+        == Defense in Depth Rollback ==
+        note right of E
+        Two-layer protection:
+        1. Preventive: Stop parallel branches immediately
+        2. Reactive: Enqueue saga compensations
+        end note
+
+        == Layer 1: Preventive Stop (Parallel Branches) ==
+        E -> E: isStepInForkBranch()
+        alt Step is in fork branch
+            E -> E: stopParallelBranchesInFork()
+            note right: Immediately stop sibling branches\nto prevent new completions
+            
+            E -> S: GetStepsByInstance()
+            S --> E: WorkflowStep[]
+            
+            loop For each parallel sibling step
+                alt Step is pending or running
+                    E -> S: UpdateStep(status=skipped)
+                    S -> DB: UPDATE workflow_steps\nSET status='skipped'
+                    DB --> S: OK
+                    S --> E: OK
+                    
+                    E -> S: LogEvent(step_failed)
+                    S -> DB: INSERT INTO workflow_events
+                    DB --> S: OK
+                    S --> E: OK
+                end
+            end
+        end
+
+        == Layer 2: Reactive Saga Compensation ==
         E -> E: rollbackToSavePointOrRoot()
-        E -> E: rollbackStepChain()
-
-        loop For each step in rollback chain
-            E -> PM: ExecuteRollbackStepChain()
-            PM --> E: OK
-
-            E -> S: GetWorkflowDefinition()
-            S --> E: WorkflowDefinition
-
-            E -> E: rollbackStep()
-
+        E -> E: enqueueCompletedStepsForRollback()
+        
+        E -> S: GetLastSavepoint()
+        S --> E: SavePointStep / nil
+        
+        E -> S: GetStepsByInstance()
+        S --> E: WorkflowStep[]
+        
+        E -> E: Filter completed steps after savepoint
+        E -> E: Sort by CreatedAt DESC (newest first)
+        
+        loop For each completed step (reverse order)
             alt Step is Condition in Parallel Flow
                 E -> E: determineExecutedBranch()
                 note right: Check which branch (Next/Else) was executed
                 
                 alt Next branch was executed
                     loop For each step in Next branch
-                        E -> E: rollbackStepChain(nextStep, ...)
+                        E -> S: UpdateStepCompensationRetry(\nretryCount=1, status=compensation)
+                        E -> S: EnqueueStep(stepID, priority=high, delay=idx*10ms)
                     end
                 else Else branch was executed
-                    E -> E: rollbackStepChain(elseStep, ...)
+                    E -> S: UpdateStepCompensationRetry(\nretryCount=1, status=compensation)
+                    E -> S: EnqueueStep(stepID, priority=high, delay=idx*10ms)
                 end
             else Regular step
                 alt Has OnFailure handler
-                    E -> S: UpdateStepCompensationRetry(\nretryCount++, status=compensation)
-                    S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count++, status='compensation'
+                    E -> S: UpdateStepCompensationRetry(\nretryCount=1, status=compensation)
+                    S -> DB: UPDATE workflow_steps SET\ncompensation_retry_count=1, status='compensation'
                     DB --> S: OK
                     S --> E: OK
 
-                    E -> S: EnqueueStep(stepID, priority=high)
+                    E -> S: EnqueueStep(stepID, priority=high, delay=idx*10ms)
                     S -> DB: INSERT INTO workflow_queue
                     DB --> S: OK
                     S --> E: OK
 
-                    E -> S: LogEvent(compensation_started)
+                    E -> S: LogEvent(compensation_enqueued)
                     S -> DB: INSERT INTO workflow_events
                     DB --> S: OK
                     S --> E: OK
@@ -157,13 +191,21 @@ else Step Failure
             end
         end
 
-        E -> S: UpdateInstanceStatus(status=failed)
-        S -> DB: UPDATE workflow_instances SET status='failed'
-        DB --> S: OK
-        S --> E: OK
+        E -> E: hasStepsInCompensation()
+        alt Steps in compensation exist
+            note right of E
+            Defer workflow failure until
+            all compensations complete
+            end note
+        else No steps in compensation
+            E -> S: UpdateInstanceStatus(status=failed)
+            S -> DB: UPDATE workflow_instances SET status='failed'
+            DB --> S: OK
+            S --> E: OK
 
-        E -> PM: ExecuteWorkflowFailed()
-        PM --> E: OK
+            E -> PM: ExecuteWorkflowFailed()
+            PM --> E: OK
+        end
     end
 end
 TM -> DB: COMMIT
@@ -197,6 +239,18 @@ alt Compensation Success
     S -> DB: INSERT INTO workflow_events
     DB --> S: OK
     S --> E: OK
+
+    E -> E: hasStepsInCompensation()
+    E -> E: hasUnfinishedSteps()
+    alt All compensations done and no unfinished steps
+        E -> S: UpdateInstanceStatus(status=failed)
+        S -> DB: UPDATE workflow_instances SET status='failed'
+        DB --> S: OK
+        S --> E: OK
+        
+        E -> PM: ExecuteWorkflowFailed()
+        PM --> E: OK
+    end
 
 else Compensation Failure
     alt Can Retry (CompensationRetryCount < MaxRetries)
