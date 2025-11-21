@@ -437,4 +437,4 @@ go get github.com/rom8726/floxy
 ## Dependencies
 
 - PostgreSQL database
-- Go 1.24+
+- Go 1.25+
