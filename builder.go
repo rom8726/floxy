@@ -13,11 +13,12 @@ const (
 )
 
 type Builder struct {
-	name        string
-	version     int
-	steps       map[string]*StepDefinition
-	startStep   string
-	currentStep string
+	name         string
+	version      int
+	steps        map[string]*StepDefinition
+	startStep    string
+	currentStep  string
+	nestingLevel int
 
 	subBuilders       []*Builder
 	defaultMaxRetries int
@@ -32,6 +33,7 @@ func NewBuilder(name string, version int, opts ...BuilderOption) *Builder {
 		version:           version,
 		steps:             make(map[string]*StepDefinition),
 		defaultMaxRetries: defaultMaxRetries,
+		nestingLevel:      1,
 	}
 
 	for _, opt := range opts {
@@ -205,6 +207,7 @@ func (builder *Builder) Fork(name string, branches ...func(branch *Builder)) *Bu
 			version:           builder.version,
 			steps:             make(map[string]*StepDefinition),
 			defaultMaxRetries: builder.defaultMaxRetries,
+			nestingLevel:      builder.nestingLevel + 1,
 		}
 
 		branchFn(sub)
@@ -393,6 +396,12 @@ func (builder *Builder) SavePoint(name string) *Builder {
 		return builder
 	}
 
+	if builder.nestingLevel > 1 {
+		builder.err = fmt.Errorf("SavePoint %q called from within a subflow", name)
+
+		return builder
+	}
+
 	step := &StepDefinition{
 		Name:     name,
 		Type:     StepTypeSavePoint,
@@ -449,6 +458,7 @@ func (builder *Builder) Condition(name, expr string, elseBranch func(elseBranchB
 			version:           builder.version,
 			steps:             make(map[string]*StepDefinition),
 			defaultMaxRetries: builder.defaultMaxRetries,
+			nestingLevel:      builder.nestingLevel, // do not +1
 		}
 
 		elseBranch(sub)

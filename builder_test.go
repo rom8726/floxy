@@ -176,4 +176,18 @@ func TestWorkflowBuilder(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "step name cannot be _root_")
 	})
+
+	t.Run("error: savepoint in subflow", func(t *testing.T) {
+		_, err := NewBuilder("savepoint-subflow", 1).
+			Step("step1", "handler1").
+			Fork("fork", func(branch1 *Builder) {
+				branch1.Step("step2", "handler2").
+					SavePoint("savepoint").
+					Then("step3", "handler3")
+			}, func(branch2 *Builder) {
+				branch2.Step("step4", "handler4")
+			}).Build()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "called from within a subflow")
+	})
 }
