@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -15,26 +16,61 @@ import (
 
 var _ floxy.Plugin = (*TelemetryPlugin)(nil)
 
+type spanEntry struct {
+	span      trace.Span
+	createdAt time.Time
+	stepType  floxy.StepType
+}
+
+type workflowCtxEntry struct {
+	ctx       context.Context
+	createdAt time.Time
+}
+
 type TelemetryPlugin struct {
 	floxy.BasePlugin
 
 	tracer       trace.Tracer
 	mu           sync.RWMutex
-	spans        map[string]trace.Span
-	workflowCtxs map[int64]context.Context
+	spans        map[string]*spanEntry
+	workflowCtxs map[int64]*workflowCtxEntry
+	defaultTTL   time.Duration
+	humanStepTTL time.Duration
 }
 
-func New(tracer trace.Tracer) *TelemetryPlugin {
+type TelemetryOption func(*TelemetryPlugin)
+
+func WithDefaultTTL(ttl time.Duration) TelemetryOption {
+	return func(p *TelemetryPlugin) {
+		p.defaultTTL = ttl
+	}
+}
+
+func WithHumanStepTTL(ttl time.Duration) TelemetryOption {
+	return func(p *TelemetryPlugin) {
+		p.humanStepTTL = ttl
+	}
+}
+
+func New(tracer trace.Tracer, opts ...TelemetryOption) *TelemetryPlugin {
 	if tracer == nil {
 		tracer = otel.Tracer("floxy")
 	}
 
-	return &TelemetryPlugin{
+	plugin := &TelemetryPlugin{
 		BasePlugin:   floxy.NewBasePlugin("telemetry", floxy.PriorityHigh),
 		tracer:       tracer,
-		spans:        make(map[string]trace.Span),
-		workflowCtxs: make(map[int64]context.Context),
+		spans:        make(map[string]*spanEntry),
+		workflowCtxs: make(map[int64]*workflowCtxEntry),
+		defaultTTL:   1 * time.Hour,
+		humanStepTTL: 24 * time.Hour,
 	}
+
+	for _, opt := range opts {
+		opt(plugin)
+	}
+
+	return plugin
 }
 
 func (p *TelemetryPlugin) OnWorkflowStart(ctx context.Context, instance *floxy.WorkflowInstance) error {
@@ -51,8 +87,16 @@ func (p *TelemetryPlugin) OnWorkflowStart(ctx context.Context, instance *floxy.W
 	)
 
 	spanKey := fmt.Sprintf("workflow:%d", instance.ID)
-	p.spans[spanKey] = span
-	p.workflowCtxs[instance.ID] = workflowCtx
+	p.spans[spanKey] = &spanEntry{
+		span:      span,
+		createdAt: time.Now(),
+	}
+	p.workflowCtxs[instance.ID] = &workflowCtxEntry{
+		ctx:       workflowCtx,
+		createdAt: time.Now(),
+	}
+
+	p.cleanupExpired()
 
 	return nil
 }
@@ -62,12 +106,12 @@ func (p *TelemetryPlugin) OnWorkflowComplete(ctx context.Context, instance *flox
 	defer p.mu.Unlock()
 
 	spanKey := fmt.Sprintf("workflow:%d", instance.ID)
-	if span, ok := p.spans[spanKey]; ok {
-		span.SetAttributes(
+	if entry, ok := p.spans[spanKey]; ok {
+		entry.span.SetAttributes(
 			attribute.String("instance.status", string(instance.Status)),
 		)
-		span.SetStatus(codes.Ok, "workflow completed")
-		span.End()
+		entry.span.SetStatus(codes.Ok, "workflow completed")
+		entry.span.End()
 		delete(p.spans, spanKey)
 	}
 	delete(p.workflowCtxs, instance.ID)
@@ -80,15 +124,15 @@ func (p *TelemetryPlugin) OnWorkflowFailed(ctx context.Context, instance *floxy.
 	defer p.mu.Unlock()
 
 	spanKey := fmt.Sprintf("workflow:%d", instance.ID)
-	if span, ok := p.spans[spanKey]; ok {
-		span.SetAttributes(
+	if entry, ok := p.spans[spanKey]; ok {
+		entry.span.SetAttributes(
 			attribute.String("instance.status", string(instance.Status)),
 		)
 		if instance.Error != nil {
-			span.SetAttributes(attribute.String("instance.error", *instance.Error))
+			entry.span.SetAttributes(attribute.String("instance.error", *instance.Error))
 		}
-		span.SetStatus(codes.Error, "workflow failed")
-		span.End()
+		entry.span.SetStatus(codes.Error, "workflow failed")
+		entry.span.End()
 		delete(p.spans, spanKey)
 	}
 	delete(p.workflowCtxs, instance.ID)
@@ -106,8 +150,8 @@ func (p *TelemetryPlugin) OnStepStart(
 
 	// Use workflow context if available to link spans
 	stepCtx := ctx
-	if workflowCtx, ok := p.workflowCtxs[instance.ID]; ok {
-		stepCtx = workflowCtx
+	if entry, ok := p.workflowCtxs[instance.ID]; ok {
+		stepCtx = entry.ctx
 	}
 
 	spanName := fmt.Sprintf("step.%s", step.StepName)
@@ -134,7 +178,13 @@ func (p *TelemetryPlugin) OnStepStart(
 	span.SetAttributes(attrs...)
 
 	spanKey := fmt.Sprintf("step:%d", step.ID)
-	p.spans[spanKey] = span
+	p.spans[spanKey] = &spanEntry{
+		span:      span,
+		createdAt: time.Now(),
+		stepType:  step.StepType,
+	}
+
+	p.cleanupExpired()
 
 	return nil
 }
@@ -148,14 +198,14 @@ func (p *TelemetryPlugin) OnStepComplete(
 	defer p.mu.Unlock()
 
 	spanKey := fmt.Sprintf("step:%d", step.ID)
-	if span, ok := p.spans[spanKey]; ok {
-		span.SetAttributes(
+	if entry, ok := p.spans[spanKey]; ok {
+		entry.span.SetAttributes(
 			attribute.String("step.status", string(step.Status)),
 			attribute.Int("step.retry_count", step.RetryCount),
 			attribute.Int("step.compensation_retry_count", step.CompensationRetryCount),
 		)
-		span.SetStatus(codes.Ok, "step completed")
-		span.End()
+		entry.span.SetStatus(codes.Ok, "step completed")
+		entry.span.End()
 		delete(p.spans, spanKey)
 	}
 
@@ -172,20 +222,20 @@ func (p *TelemetryPlugin) OnStepFailed(
 	defer p.mu.Unlock()
 
 	spanKey := fmt.Sprintf("step:%d", step.ID)
-	if span, ok := p.spans[spanKey]; ok {
-		span.SetAttributes(
+	if entry, ok := p.spans[spanKey]; ok {
+		entry.span.SetAttributes(
 			attribute.String("step.status", string(step.Status)),
 			attribute.Int("step.retry_count", step.RetryCount),
 			attribute.Int("step.compensation_retry_count", step.CompensationRetryCount),
 		)
 		if step.Error != nil {
-			span.SetAttributes(attribute.String("step.error", *step.Error))
+			entry.span.SetAttributes(attribute.String("step.error", *step.Error))
 		}
 		if err != nil {
-			span.RecordError(err)
+			entry.span.RecordError(err)
 		}
-		span.SetStatus(codes.Error, "step failed")
-		span.End()
+		entry.span.SetStatus(codes.Error, "step failed")
+		entry.span.End()
 		delete(p.spans, spanKey)
 	}
 
@@ -203,8 +253,8 @@ func (p *TelemetryPlugin) OnRollbackStepChain(
 
 	// Use workflow context if available to link spans
 	rollbackCtx := ctx
-	if workflowCtx, ok := p.workflowCtxs[instanceID]; ok {
-		rollbackCtx = workflowCtx
+	if entry, ok := p.workflowCtxs[instanceID]; ok {
+		rollbackCtx = entry.ctx
 	}
 
 	spanName := fmt.Sprintf("rollback.%s", stepName)
@@ -220,4 +270,29 @@ func (p *TelemetryPlugin) OnRollbackStepChain(
 	span.End()
 
 	return nil
+}
+
+func (p *TelemetryPlugin) cleanupExpired() {
+	now := time.Now()
+
+	// Cleanup expired spans
+	for key, entry := range p.spans {
+		ttl := p.defaultTTL
+		if entry.stepType == floxy.StepTypeHuman {
+			ttl = p.humanStepTTL
+		}
+
+		if now.Sub(entry.createdAt) > ttl {
+			entry.span.SetStatus(codes.Error, "span expired due to TTL")
+			entry.span.End()
+			delete(p.spans, key)
+		}
+	}
+
+	// Cleanup expired workflow contexts
+	for instanceID, entry := range p.workflowCtxs {
+		if now.Sub(entry.createdAt) > p.defaultTTL {
+			delete(p.workflowCtxs, instanceID)
+		}
+	}
 }
