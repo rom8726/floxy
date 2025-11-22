@@ -31,6 +31,12 @@ else Failure
     E -> S: UpdateStep(status=failed)
     E -> E: Rollback to SavePoint
     E -> S: EnqueueCompensationSteps()
+    
+    alt Steps in compensation exist
+        note right: Defer workflow failure\nuntil compensations complete
+    else No compensations
+        E -> S: UpdateInstanceStatus(status=failed)
+    end
 end
 
 == Compensation ==
@@ -40,6 +46,13 @@ H --> E: result/error
 
 alt Compensation Success
     E -> S: UpdateStep(status=rolled_back)
+    
+    E -> E: hasStepsInCompensation()
+    E -> E: hasUnfinishedSteps()
+    alt All compensations done AND no unfinished steps
+        E -> S: UpdateInstanceStatus(status=failed)
+        note right: Workflow finalized as failed
+    end
 else Compensation Failure
     alt Can Retry
         E -> S: UpdateStepCompensationRetry()
