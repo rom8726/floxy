@@ -8,8 +8,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/rom8726/floxy"
+	"github.com/rom8726/floxy/plugins/engine/telemetry"
 )
 
 type SimpleTestHandler struct{}
@@ -43,7 +50,56 @@ func (h *FailingHandler) Execute(ctx context.Context, stepCtx floxy.StepContext,
 	return nil, fmt.Errorf("intentional error in step %s", stepCtx.StepName())
 }
 
+func initTracer() (func() error, error) {
+	ctx := context.Background()
+
+	exporter, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint("localhost:4318"),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating OTLP trace exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			attribute.String("service.name", "floxy-condition-demo"),
+			attribute.String("service.version", "1.0.0"),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating resource: %w", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return tp.Shutdown(ctx)
+	}, nil
+}
+
 func main() {
+	shutdown, err := initTracer()
+	if err != nil {
+		log.Fatalf("Failed to initialize tracer: %v", err)
+	}
+	defer func() {
+		if err := shutdown(); err != nil {
+			log.Printf("Failed to shutdown tracer: %v", err)
+		}
+	}()
+
 	ctx := context.Background()
 
 	// Connect to database
@@ -65,6 +121,11 @@ func main() {
 			log.Printf("Failed to shutdown engine: %v", err)
 		}
 	}()
+
+	// Register telemetry plugin
+	tracer := otel.Tracer("floxy")
+	telemetryPlugin := telemetry.New(tracer)
+	engine.RegisterPlugin(telemetryPlugin)
 
 	// Register handlers
 	engine.RegisterHandler(&SimpleTestHandler{})
@@ -196,4 +257,5 @@ func main() {
 	fmt.Println("- Branch 2 fails, so the entire workflow fails")
 	fmt.Println("- All steps are rolled back due to the failure")
 	fmt.Println("- Join and final steps are not completed")
+	fmt.Println("\nTraces are being sent to Jaeger. Open http://localhost:16686 to view them.")
 }

@@ -18,9 +18,10 @@ var _ floxy.Plugin = (*TelemetryPlugin)(nil)
 type TelemetryPlugin struct {
 	floxy.BasePlugin
 
-	tracer trace.Tracer
-	mu     sync.RWMutex
-	spans  map[string]trace.Span
+	tracer       trace.Tracer
+	mu           sync.RWMutex
+	spans        map[string]trace.Span
+	workflowCtxs map[int64]context.Context
 }
 
 func New(tracer trace.Tracer) *TelemetryPlugin {
@@ -29,9 +30,10 @@ func New(tracer trace.Tracer) *TelemetryPlugin {
 	}
 
 	return &TelemetryPlugin{
-		BasePlugin: floxy.NewBasePlugin("telemetry", floxy.PriorityHigh),
-		tracer:     tracer,
-		spans:      make(map[string]trace.Span),
+		BasePlugin:   floxy.NewBasePlugin("telemetry", floxy.PriorityHigh),
+		tracer:       tracer,
+		spans:        make(map[string]trace.Span),
+		workflowCtxs: make(map[int64]context.Context),
 	}
 }
 
@@ -40,7 +42,7 @@ func (p *TelemetryPlugin) OnWorkflowStart(ctx context.Context, instance *floxy.W
 	defer p.mu.Unlock()
 
 	spanName := fmt.Sprintf("workflow.%s", instance.WorkflowID)
-	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
+	workflowCtx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
 
 	span.SetAttributes(
 		attribute.Int64("instance.id", instance.ID),
@@ -50,6 +52,7 @@ func (p *TelemetryPlugin) OnWorkflowStart(ctx context.Context, instance *floxy.W
 
 	spanKey := fmt.Sprintf("workflow:%d", instance.ID)
 	p.spans[spanKey] = span
+	p.workflowCtxs[instance.ID] = workflowCtx
 
 	return nil
 }
@@ -67,6 +70,7 @@ func (p *TelemetryPlugin) OnWorkflowComplete(ctx context.Context, instance *flox
 		span.End()
 		delete(p.spans, spanKey)
 	}
+	delete(p.workflowCtxs, instance.ID)
 
 	return nil
 }
@@ -87,6 +91,7 @@ func (p *TelemetryPlugin) OnWorkflowFailed(ctx context.Context, instance *floxy.
 		span.End()
 		delete(p.spans, spanKey)
 	}
+	delete(p.workflowCtxs, instance.ID)
 
 	return nil
 }
@@ -99,8 +104,14 @@ func (p *TelemetryPlugin) OnStepStart(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Use workflow context if available to link spans
+	stepCtx := ctx
+	if workflowCtx, ok := p.workflowCtxs[instance.ID]; ok {
+		stepCtx = workflowCtx
+	}
+
 	spanName := fmt.Sprintf("step.%s", step.StepName)
-	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	_, span := p.tracer.Start(stepCtx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
 
 	attrs := []attribute.KeyValue{
 		attribute.Int64("step.id", step.ID),
@@ -187,8 +198,17 @@ func (p *TelemetryPlugin) OnRollbackStepChain(
 	stepName string,
 	depth int,
 ) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Use workflow context if available to link spans
+	rollbackCtx := ctx
+	if workflowCtx, ok := p.workflowCtxs[instanceID]; ok {
+		rollbackCtx = workflowCtx
+	}
+
 	spanName := fmt.Sprintf("rollback.%s", stepName)
-	_, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	_, span := p.tracer.Start(rollbackCtx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
 
 	span.SetAttributes(
 		attribute.Int64("instance.id", instanceID),
