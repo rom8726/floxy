@@ -102,7 +102,12 @@ func TestMetricsPlugin_WorkflowLifecycle(t *testing.T) {
 	fc := &fakeCollector{}
 	p := New(fc)
 
-	inst := &floxy.WorkflowInstance{ID: 1001, WorkflowID: "wf-m", Status: floxy.StatusRunning}
+	inst := &floxy.WorkflowInstance{
+		ID:         1001,
+		WorkflowID: "wf-m",
+		Status:     floxy.StatusRunning,
+		CreatedAt:  time.Now(),
+	}
 
 	if err := p.OnWorkflowStart(context.Background(), inst); err != nil {
 		t.Fatalf("OnWorkflowStart error: %v", err)
@@ -137,7 +142,12 @@ func TestMetricsPlugin_WorkflowFailedWithoutStartIsNoop(t *testing.T) {
 	fc := &fakeCollector{}
 	p := New(fc)
 
-	inst := &floxy.WorkflowInstance{ID: 2002, WorkflowID: "wf-x", Status: floxy.StatusFailed}
+	inst := &floxy.WorkflowInstance{
+		ID:         2002,
+		WorkflowID: "wf-x",
+		Status:     floxy.StatusFailed,
+		CreatedAt:  time.Now(),
+	}
 
 	// No start called
 	if err := p.OnWorkflowFailed(context.Background(), inst); err != nil {
@@ -153,8 +163,20 @@ func TestMetricsPlugin_StepLifecycle(t *testing.T) {
 	fc := &fakeCollector{}
 	p := New(fc)
 
-	inst := &floxy.WorkflowInstance{ID: 3003, WorkflowID: "wf-s", Status: floxy.StatusRunning}
-	step := &floxy.WorkflowStep{ID: 11, InstanceID: 3003, StepName: "A", StepType: floxy.StepTypeTask, Status: floxy.StepStatusRunning}
+	inst := &floxy.WorkflowInstance{
+		ID:         3003,
+		WorkflowID: "wf-s",
+		Status:     floxy.StatusRunning,
+		CreatedAt:  time.Now(),
+	}
+	step := &floxy.WorkflowStep{
+		ID:         11,
+		InstanceID: 3003,
+		StepName:   "A",
+		StepType:   floxy.StepTypeTask,
+		Status:     floxy.StepStatusRunning,
+		CreatedAt:  time.Now(),
+	}
 
 	if err := p.OnStepStart(context.Background(), inst, step); err != nil {
 		t.Fatalf("OnStepStart error: %v", err)
@@ -181,8 +203,20 @@ func TestMetricsPlugin_StepFailedWithoutStartIsNoop(t *testing.T) {
 	fc := &fakeCollector{}
 	p := New(fc)
 
-	inst := &floxy.WorkflowInstance{ID: 4004, WorkflowID: "wf-s2", Status: floxy.StatusRunning}
-	step := &floxy.WorkflowStep{ID: 22, InstanceID: 4004, StepName: "B", StepType: floxy.StepTypeTask, Status: floxy.StepStatusFailed}
+	inst := &floxy.WorkflowInstance{
+		ID:         4004,
+		WorkflowID: "wf-s2",
+		Status:     floxy.StatusRunning,
+		CreatedAt:  time.Now(),
+	}
+	step := &floxy.WorkflowStep{
+		ID:         22,
+		InstanceID: 4004,
+		StepName:   "B",
+		StepType:   floxy.StepTypeTask,
+		Status:     floxy.StepStatusFailed,
+		CreatedAt:  time.Now(),
+	}
 
 	// No start called
 	if err := p.OnStepFailed(context.Background(), inst, step, assertErr{}); err != nil {
