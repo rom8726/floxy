@@ -122,10 +122,12 @@ func (s *SQLiteStore) SaveWorkflowDefinition(ctx context.Context, def *WorkflowD
 	if err != nil {
 		return err
 	}
-	q := `INSERT INTO workflow_definitions (id, name, version, definition, created_at)
+	const query = `INSERT INTO workflow_definitions (id, name, version, definition, created_at)
 		VALUES(?, ?, ?, ?, ?)
 		ON CONFLICT(name, version) DO UPDATE SET definition=excluded.definition`
-	if _, err := s.db.ExecContext(ctx, q, def.ID, def.Name, def.Version, definitionJSON, time.Now()); err != nil {
+	if _, err := s.db.ExecContext(
+		ctx, query, def.ID, def.Name, def.Version, definitionJSON, time.Now(),
+	); err != nil {
 		return err
 	}
 	// We keep provided ID/CreatedAt; in SQLite we don't fetch RETURNING here.
@@ -133,11 +135,15 @@ func (s *SQLiteStore) SaveWorkflowDefinition(ctx context.Context, def *WorkflowD
 }
 
 func (s *SQLiteStore) GetWorkflowDefinition(ctx context.Context, id string) (*WorkflowDefinition, error) {
-	q := `SELECT id, name, version, definition, created_at FROM workflow_definitions WHERE id=?`
-	row := s.db.QueryRowContext(ctx, q, id)
+	const query = `SELECT id, name, version, definition, created_at
+		FROM workflow_definitions
+		WHERE id=?`
+	row := s.db.QueryRowContext(ctx, query, id)
 	var def WorkflowDefinition
 	var defJSON []byte
-	if err := row.Scan(&def.ID, &def.Name, &def.Version, &defJSON, &def.CreatedAt); err != nil {
+	if err := row.Scan(
+		&def.ID, &def.Name, &def.Version, &defJSON, &def.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEntityNotFound
 		}
@@ -152,9 +158,9 @@ func (s *SQLiteStore) GetWorkflowDefinition(ctx context.Context, id string) (*Wo
 // Instances
 func (s *SQLiteStore) CreateInstance(ctx context.Context, workflowID string, input json.RawMessage) (*WorkflowInstance, error) {
 	now := time.Now()
-	q := `INSERT INTO workflow_instances (workflow_id, status, input, created_at, updated_at)
+	const query = `INSERT INTO workflow_instances (workflow_id, status, input, created_at, updated_at)
 		VALUES(?, ?, ?, ?, ?)`
-	res, err := s.db.ExecContext(ctx, q, workflowID, StatusPending, input, now, now)
+	res, err := s.db.ExecContext(ctx, query, workflowID, StatusPending, input, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -166,19 +172,23 @@ func (s *SQLiteStore) UpdateInstanceStatus(ctx context.Context, instanceID int64
 	now := time.Now()
 	// Update completed_at when status is completed, failed, or cancelled
 	// Update started_at when status is running and started_at is NULL
-	q := `UPDATE workflow_instances 
+	const query = `UPDATE workflow_instances 
 		SET status=?, output=?, error=?, updated_at=?,
 			completed_at = CASE WHEN ? IN ('completed', 'failed', 'cancelled') THEN ? ELSE completed_at END,
 			started_at = CASE WHEN started_at IS NULL AND ? = 'running' THEN ? ELSE started_at END
 		WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, now, status, now, status, now, instanceID)
+	_, err := s.db.ExecContext(
+		ctx, query, status, output, errMsg, now, status, now, status, now, instanceID,
+	)
 	return err
 }
 
 func (s *SQLiteStore) GetInstance(ctx context.Context, instanceID int64) (*WorkflowInstance, error) {
-	q := `SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at
-		FROM workflow_instances WHERE id=?`
-	row := s.db.QueryRowContext(ctx, q, instanceID)
+	const query = `SELECT id, workflow_id, status, input, output, error,
+			started_at, completed_at, created_at, updated_at
+		FROM workflow_instances
+		WHERE id=?`
+	row := s.db.QueryRowContext(ctx, query, instanceID)
 	var inst WorkflowInstance
 	var inputBytes, outputBytes []byte
 	if err := row.Scan(
@@ -202,11 +212,11 @@ func (s *SQLiteStore) GetInstance(ctx context.Context, instanceID int64) (*Workf
 // Steps
 func (s *SQLiteStore) CreateStep(ctx context.Context, step *WorkflowStep) error {
 	now := time.Now()
-	q := `INSERT INTO workflow_steps (
+	const query = `INSERT INTO workflow_steps (
 		instance_id, step_name, step_type, status, input, output, error, retry_count,
 		max_retries, compensation_retry_count, idempotency_key, started_at, completed_at, created_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	res, err := s.db.ExecContext(ctx, q,
+	res, err := s.db.ExecContext(ctx, query,
 		step.InstanceID, step.StepName, step.StepType, step.Status, step.Input, step.Output, step.Error,
 		step.RetryCount, step.MaxRetries, step.CompensationRetryCount, step.IdempotencyKey,
 		step.StartedAt, step.CompletedAt, now,
@@ -225,21 +235,24 @@ func (s *SQLiteStore) UpdateStep(ctx context.Context, stepID int64, status StepS
 	// Update completed_at when status is completed, failed, skipped, or rolled_back
 	// Update started_at when status is running and started_at is NULL
 	// Increment retry_count when status is failed
-	q := `UPDATE workflow_steps 
+	const query = `UPDATE workflow_steps 
 		SET status=?, output=?, error=?,
 			completed_at = CASE WHEN ? IN ('completed', 'failed', 'skipped', 'rolled_back') THEN ? ELSE completed_at END,
 			started_at = CASE WHEN started_at IS NULL AND ? = 'running' THEN ? ELSE started_at END,
 			retry_count = CASE WHEN ? = 'failed' THEN retry_count + 1 ELSE retry_count END
 		WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, status, output, errMsg, status, now, status, now, status, stepID)
+	_, err := s.db.ExecContext(ctx, query, status, output, errMsg, status, now, status, now, status, stepID)
 	return err
 }
 
 func (s *SQLiteStore) GetStepsByInstance(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
-	q := `SELECT id, instance_id, step_name, step_type, status, input, output, error, retry_count,
-		max_retries, compensation_retry_count, idempotency_key, started_at, completed_at, created_at
-		FROM workflow_steps WHERE instance_id=? ORDER BY id`
-	rows, err := s.db.QueryContext(ctx, q, instanceID)
+	const query = `SELECT id, instance_id, step_name, step_type, status, input, output, error,
+			retry_count, max_retries, compensation_retry_count, idempotency_key,
+			started_at, completed_at, created_at
+		FROM workflow_steps
+		WHERE instance_id=?
+		ORDER BY id`
+	rows, err := s.db.QueryContext(ctx, query, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,9 +261,12 @@ func (s *SQLiteStore) GetStepsByInstance(ctx context.Context, instanceID int64) 
 	for rows.Next() {
 		var srec WorkflowStep
 		var inputBytes, outputBytes []byte
-		if err := rows.Scan(&srec.ID, &srec.InstanceID, &srec.StepName, &srec.StepType, &srec.Status,
+		if err := rows.Scan(
+			&srec.ID, &srec.InstanceID, &srec.StepName, &srec.StepType, &srec.Status,
 			&inputBytes, &outputBytes, &srec.Error, &srec.RetryCount, &srec.MaxRetries,
-			&srec.CompensationRetryCount, &srec.IdempotencyKey, &srec.StartedAt, &srec.CompletedAt, &srec.CreatedAt); err != nil {
+			&srec.CompensationRetryCount, &srec.IdempotencyKey, &srec.StartedAt,
+			&srec.CompletedAt, &srec.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		srec.Input = json.RawMessage(inputBytes)
@@ -265,14 +281,17 @@ func (s *SQLiteStore) GetStepsByInstance(ctx context.Context, instanceID int64) 
 // Queue
 func (s *SQLiteStore) EnqueueStep(ctx context.Context, instanceID int64, stepID *int64, priority Priority, delay time.Duration) error {
 	sched := time.Now().Add(delay)
-	q := `INSERT INTO queue (instance_id, step_id, scheduled_at, priority) VALUES(?, ?, ?, ?)`
-	_, err := s.db.ExecContext(ctx, q, instanceID, stepID, sched, int(priority))
+	const query = `INSERT INTO queue (instance_id, step_id, scheduled_at, priority)
+		VALUES(?, ?, ?, ?)`
+	_, err := s.db.ExecContext(ctx, query, instanceID, stepID, sched, int(priority))
 	return err
 }
 
 func (s *SQLiteStore) UpdateStepCompensationRetry(ctx context.Context, stepID int64, retryCount int, status StepStatus) error {
-	q := `UPDATE workflow_steps SET compensation_retry_count=?, status=? WHERE id=?`
-	_, err := s.db.ExecContext(ctx, q, retryCount, status, stepID)
+	const query = `UPDATE workflow_steps
+		SET compensation_retry_count=?, status=?
+		WHERE id=?`
+	_, err := s.db.ExecContext(ctx, query, retryCount, status, stepID)
 	return err
 }
 
@@ -295,17 +314,29 @@ func (s *SQLiteStore) DequeueStep(ctx context.Context, workerID string) (*QueueI
 		// Clamp aging rate to ensure valid SQL expression (defense in depth)
 		rate := clampAgingRate(s.agingRate)
 		// effective_priority = min(100, priority + floor(wait_seconds * rate))
-		orderExpr = fmt.Sprintf("MIN(100, priority + CAST(((strftime('%%s','now') - strftime('%%s', scheduled_at)) * %.6f) AS INTEGER))", rate)
+		orderExpr = fmt.Sprintf(
+			"MIN(100, priority + CAST(((strftime('%%s','now') - strftime('%%s', scheduled_at)) * %.6f) AS INTEGER))",
+			rate,
+		)
 	}
 
-	row := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority
-		FROM queue
-		WHERE scheduled_at <= ? AND (attempted_by IS NULL)
-		ORDER BY %s DESC, scheduled_at ASC, id ASC
-		LIMIT 1`, orderExpr), time.Now())
+	row := tx.QueryRowContext(
+		ctx,
+		fmt.Sprintf(`
+			SELECT id, instance_id, step_id, scheduled_at, attempted_at, attempted_by, priority
+			FROM queue
+			WHERE scheduled_at <= ? AND (attempted_by IS NULL)
+			ORDER BY %s DESC, scheduled_at ASC, id ASC
+			LIMIT 1`,
+			orderExpr,
+		),
+		time.Now(),
+	)
 	var qi QueueItem
-	if err := row.Scan(&qi.ID, &qi.InstanceID, &qi.StepID, &qi.ScheduledAt, &qi.AttemptedAt, &qi.AttemptedBy, &qi.Priority); err != nil {
+	if err := row.Scan(
+		&qi.ID, &qi.InstanceID, &qi.StepID, &qi.ScheduledAt,
+		&qi.AttemptedAt, &qi.AttemptedBy, &qi.Priority,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -313,16 +344,19 @@ func (s *SQLiteStore) DequeueStep(ctx context.Context, workerID string) (*QueueI
 	}
 	// mark as attempted by worker
 	now := time.Now()
-	res, err := tx.ExecContext(ctx, `UPDATE queue SET attempted_at=?, attempted_by=? WHERE id=? AND attempted_by IS NULL`, now, workerID, qi.ID)
+	res, err := tx.ExecContext(
+		ctx,
+		`UPDATE queue
+			SET attempted_at=?, attempted_by=?
+			WHERE id=? AND attempted_by IS NULL`,
+		now, workerID, qi.ID,
+	)
 	if err != nil {
 		return nil, err
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
 		// another worker claimed it; let caller retry
 		return nil, nil
-	}
-	if err != nil {
-		return nil, err
 	}
 	qi.AttemptedAt = &now
 	qi.AttemptedBy = &workerID
@@ -335,33 +369,58 @@ func (s *SQLiteStore) DequeueStep(ctx context.Context, workerID string) (*QueueI
 }
 
 func (s *SQLiteStore) RemoveFromQueue(ctx context.Context, queueID int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM queue WHERE id=?`, queueID)
+	_, err := s.db.ExecContext(
+		ctx, `DELETE FROM queue WHERE id=?`, queueID,
+	)
 	return err
 }
 
 func (s *SQLiteStore) ReleaseQueueItem(ctx context.Context, queueID int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE queue SET attempted_at=NULL, attempted_by=NULL WHERE id=?`, queueID)
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE queue
+			SET attempted_at=NULL, attempted_by=NULL
+			WHERE id=?`,
+		queueID,
+	)
 	return err
 }
 
 func (s *SQLiteStore) RescheduleAndReleaseQueueItem(ctx context.Context, queueID int64, delay time.Duration) error {
 	sched := time.Now().Add(delay)
-	_, err := s.db.ExecContext(ctx, `UPDATE queue SET scheduled_at=?, attempted_at=NULL, attempted_by=NULL WHERE id=?`, sched, queueID)
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE queue
+			SET scheduled_at=?, attempted_at=NULL, attempted_by=NULL
+			WHERE id=?`,
+		sched, queueID,
+	)
 	return err
 }
 
-// Events
 func (s *SQLiteStore) LogEvent(ctx context.Context, instanceID int64, stepID *int64, eventType string, payload any) error {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO workflow_events (instance_id, step_id, event_type, payload, created_at) VALUES(?, ?, ?, ?, ?)`, instanceID, stepID, eventType, payloadJSON, time.Now())
+	_, err = s.db.ExecContext(
+		ctx,
+		`INSERT INTO workflow_events (instance_id, step_id, event_type, payload, created_at)
+			VALUES(?, ?, ?, ?, ?)`,
+		instanceID, stepID, eventType, payloadJSON, time.Now(),
+	)
 	return err
 }
 
 func (s *SQLiteStore) GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, instance_id, step_id, event_type, payload, created_at FROM workflow_events WHERE instance_id=? ORDER BY id`, instanceID)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, instance_id, step_id, event_type, payload, created_at
+			FROM workflow_events
+			WHERE instance_id=?
+			ORDER BY id`,
+		instanceID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -377,13 +436,20 @@ func (s *SQLiteStore) GetWorkflowEvents(ctx context.Context, instanceID int64) (
 	return res, nil
 }
 
-// Joins and other auxiliary features — minimal or not implemented for now
 func (s *SQLiteStore) CreateJoinState(ctx context.Context, instanceID int64, joinStepName string, waitingFor []string, strategy JoinStrategy) error {
 	wf, _ := json.Marshal(waitingFor)
 	now := time.Now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO join_states (instance_id, join_step_name, waiting_for, completed, failed, join_strategy, is_ready, created_at, updated_at) VALUES(?, ?, ?, '[]', '[]', ?, 0, ?, ?)`, instanceID, joinStepName, string(wf), strategy, now, now)
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO join_states (
+			instance_id, join_step_name, waiting_for, completed, failed,
+			join_strategy, is_ready, created_at, updated_at
+		) VALUES(?, ?, ?, '[]', '[]', ?, 0, ?, ?)`,
+		instanceID, joinStepName, string(wf), strategy, now, now,
+	)
 	return err
 }
+
 func (s *SQLiteStore) UpdateJoinState(ctx context.Context, instanceID int64, joinStepName, completedStep string, success bool) (bool, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT waiting_for, completed, failed, join_strategy FROM join_states WHERE instance_id=? AND join_step_name=?`, instanceID, joinStepName)
 	var waitingJSON, completedJSON, failedJSON string
@@ -429,11 +495,26 @@ func (s *SQLiteStore) UpdateJoinState(ctx context.Context, instanceID int64, joi
 	}
 	compJSON, _ := json.Marshal(completed)
 	failJSON, _ := json.Marshal(failed)
-	_, err := s.db.ExecContext(ctx, `UPDATE join_states SET completed=?, failed=?, is_ready=?, updated_at=? WHERE instance_id=? AND join_step_name=?`, string(compJSON), string(failJSON), boolToInt(isReady), time.Now(), instanceID, joinStepName)
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE join_states
+			SET completed=?, failed=?, is_ready=?, updated_at=?
+			WHERE instance_id=? AND join_step_name=?`,
+		string(compJSON), string(failJSON), boolToInt(isReady), time.Now(),
+		instanceID, joinStepName,
+	)
 	return isReady, err
 }
+
 func (s *SQLiteStore) GetJoinState(ctx context.Context, instanceID int64, joinStepName string) (*JoinState, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT waiting_for, completed, failed, join_strategy, is_ready, created_at, updated_at FROM join_states WHERE instance_id=? AND join_step_name=?`, instanceID, joinStepName)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT waiting_for, completed, failed, join_strategy, is_ready,
+			created_at, updated_at
+			FROM join_states
+			WHERE instance_id=? AND join_step_name=?`,
+		instanceID, joinStepName,
+	)
 	var waitingJSON, completedJSON, failedJSON string
 	var strategy JoinStrategy
 	var isReadyInt int
@@ -448,8 +529,19 @@ func (s *SQLiteStore) GetJoinState(ctx context.Context, instanceID int64, joinSt
 	_ = json.Unmarshal([]byte(waitingJSON), &waitingFor)
 	_ = json.Unmarshal([]byte(completedJSON), &completed)
 	_ = json.Unmarshal([]byte(failedJSON), &failed)
-	return &JoinState{InstanceID: instanceID, JoinStepName: joinStepName, WaitingFor: waitingFor, Completed: completed, Failed: failed, JoinStrategy: strategy, IsReady: isReadyInt == 1, CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
+	return &JoinState{
+		InstanceID:   instanceID,
+		JoinStepName: joinStepName,
+		WaitingFor:   waitingFor,
+		Completed:    completed,
+		Failed:       failed,
+		JoinStrategy: strategy,
+		IsReady:      isReadyInt == 1,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+	}, nil
 }
+
 func (s *SQLiteStore) AddToJoinWaitFor(ctx context.Context, instanceID int64, joinStepName, stepToAdd string) error {
 	row := s.db.QueryRowContext(ctx, `SELECT waiting_for, completed, failed, join_strategy FROM join_states WHERE instance_id=? AND join_step_name=?`, instanceID, joinStepName)
 	var waitingJSON, completedJSON, failedJSON string
@@ -470,6 +562,7 @@ func (s *SQLiteStore) AddToJoinWaitFor(ctx context.Context, instanceID int64, jo
 	_, err := s.db.ExecContext(ctx, `UPDATE join_states SET waiting_for=?, is_ready=?, updated_at=? WHERE instance_id=? AND join_step_name=?`, string(wfJSON), boolToInt(isReady), time.Now(), instanceID, joinStepName)
 	return err
 }
+
 func (s *SQLiteStore) ReplaceInJoinWaitFor(ctx context.Context, instanceID int64, joinStepName, virtualStep, realStep string) error {
 	row := s.db.QueryRowContext(ctx, `SELECT waiting_for, completed, failed, join_strategy FROM join_states WHERE instance_id=? AND join_step_name=?`, instanceID, joinStepName)
 	var waitingJSON, completedJSON, failedJSON string
@@ -519,12 +612,20 @@ func (s *SQLiteStore) GetSummaryStats(ctx context.Context) (*SummaryStats, error
 	return &stats, nil
 }
 func (s *SQLiteStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowInstance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT wi.id, wi.workflow_id, COALESCE(wd.name,''), wi.status, wi.created_at, wi.updated_at,
-		(SELECT step_name FROM workflow_steps WHERE instance_id=wi.id AND status='running' LIMIT 1) as current_step,
-		(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id) as total_steps,
-		(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id AND status='completed') as completed_steps,
-		(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id AND status='rolled_back') as rolled_back_steps
-		FROM workflow_instances wi LEFT JOIN workflow_definitions wd ON wi.workflow_id = wd.id WHERE wi.status IN ('running','pending','dlq') ORDER BY wi.created_at DESC`)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT
+			wi.id, wi.workflow_id, COALESCE(wd.name,''), wi.status,
+			wi.created_at, wi.updated_at,
+			(SELECT step_name FROM workflow_steps WHERE instance_id=wi.id AND status='running' LIMIT 1) as current_step,
+			(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id) as total_steps,
+			(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id AND status='completed') as completed_steps,
+			(SELECT COUNT(*) FROM workflow_steps WHERE instance_id=wi.id AND status='rolled_back') as rolled_back_steps
+		FROM workflow_instances wi
+		LEFT JOIN workflow_definitions wd ON wi.workflow_id = wd.id
+		WHERE wi.status IN ('running','pending','dlq')
+		ORDER BY wi.created_at DESC`,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -533,8 +634,11 @@ func (s *SQLiteStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowI
 	for rows.Next() {
 		var a ActiveWorkflowInstance
 		var currentStep *string
-		if err := rows.Scan(&a.ID, &a.WorkflowID, &a.WorkflowName, &a.Status, &a.StartedAt, &a.UpdatedAt,
-			&currentStep, &a.TotalSteps, &a.CompletedSteps, &a.RolledBackSteps); err != nil {
+		if err := rows.Scan(
+			&a.ID, &a.WorkflowID, &a.WorkflowName, &a.Status,
+			&a.StartedAt, &a.UpdatedAt, &currentStep, &a.TotalSteps,
+			&a.CompletedSteps, &a.RolledBackSteps,
+		); err != nil {
 			return nil, err
 		}
 		if currentStep != nil {
@@ -545,8 +649,12 @@ func (s *SQLiteStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowI
 	return res, nil
 }
 func (s *SQLiteStore) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, version, definition, created_at 
-FROM workflow_definitions ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, name, version, definition, created_at
+			FROM workflow_definitions
+			ORDER BY created_at DESC`,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +672,15 @@ FROM workflow_definitions ORDER BY created_at DESC`)
 	return res, nil
 }
 func (s *SQLiteStore) GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, 
-       completed_at, created_at, updated_at FROM workflow_instances WHERE workflow_id=? ORDER BY id`, workflowID)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, workflow_id, status, input, output, error,
+			started_at, completed_at, created_at, updated_at
+			FROM workflow_instances
+			WHERE workflow_id=?
+			ORDER BY id`,
+		workflowID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -587,8 +702,13 @@ func (s *SQLiteStore) GetWorkflowInstances(ctx context.Context, workflowID strin
 	return res, nil
 }
 func (s *SQLiteStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, 
-       completed_at, created_at, updated_at FROM workflow_instances ORDER BY id`)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, workflow_id, status, input, output, error,
+			started_at, completed_at, created_at, updated_at
+			FROM workflow_instances
+			ORDER BY id`,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -617,8 +737,16 @@ func (s *SQLiteStore) GetWorkflowInstancesPaginated(ctx context.Context, workflo
 		return nil, 0, err
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at 
-FROM workflow_instances WHERE workflow_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`, workflowID, limit, offset)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, workflow_id, status, input, output, error,
+			started_at, completed_at, created_at, updated_at
+			FROM workflow_instances
+			WHERE workflow_id=?
+			ORDER BY created_at DESC
+			LIMIT ? OFFSET ?`,
+		workflowID, limit, offset,
+	)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -648,9 +776,15 @@ func (s *SQLiteStore) GetAllWorkflowInstancesPaginated(ctx context.Context, offs
 		return nil, 0, err
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at
-FROM workflow_instances ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, workflow_id, status, input, output, error,
+			started_at, completed_at, created_at, updated_at
+			FROM workflow_instances
+			ORDER BY created_at DESC
+			LIMIT ? OFFSET ?`,
+		limit, offset,
+	)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -676,14 +810,15 @@ FROM workflow_instances ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offse
 func (s *SQLiteStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	return s.GetStepsByInstance(ctx, instanceID)
 }
+
 func (s *SQLiteStore) GetActiveStepsForUpdate(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
-	q := `SELECT id, instance_id, step_name, step_type, status, input, output, error,
+	const query = `SELECT id, instance_id, step_name, step_type, status, input, output, error,
 		retry_count, max_retries, compensation_retry_count, idempotency_key,
 		started_at, completed_at, created_at
 		FROM workflow_steps
 		WHERE instance_id=? AND status IN ('pending', 'running', 'waiting_decision')
 		ORDER BY created_at DESC`
-	rows, err := s.db.QueryContext(ctx, q, instanceID)
+	rows, err := s.db.QueryContext(ctx, query, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -707,11 +842,24 @@ func (s *SQLiteStore) GetActiveStepsForUpdate(ctx context.Context, instanceID in
 }
 
 func (s *SQLiteStore) CreateCancelRequest(ctx context.Context, req *WorkflowCancelRequest) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO cancel_requests (instance_id, requested_by, cancel_type, reason, created_at) VALUES(?, ?, ?, ?, ?)`, req.InstanceID, req.RequestedBy, req.CancelType, req.Reason, time.Now())
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO cancel_requests (
+			instance_id, requested_by, cancel_type, reason, created_at
+		) VALUES(?, ?, ?, ?, ?)`,
+		req.InstanceID, req.RequestedBy, req.CancelType, req.Reason, time.Now(),
+	)
 	return err
 }
+
 func (s *SQLiteStore) GetCancelRequest(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT instance_id, requested_by, cancel_type, reason, created_at FROM cancel_requests WHERE instance_id=?`, instanceID)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT instance_id, requested_by, cancel_type, reason, created_at
+			FROM cancel_requests
+			WHERE instance_id=?`,
+		instanceID,
+	)
 	var req WorkflowCancelRequest
 	if err := row.Scan(&req.InstanceID, &req.RequestedBy, &req.CancelType, &req.Reason, &req.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -721,6 +869,7 @@ func (s *SQLiteStore) GetCancelRequest(ctx context.Context, instanceID int64) (*
 	}
 	return &req, nil
 }
+
 func (s *SQLiteStore) DeleteCancelRequest(ctx context.Context, instanceID int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM cancel_requests WHERE instance_id=?`, instanceID)
 	return err
@@ -728,7 +877,14 @@ func (s *SQLiteStore) DeleteCancelRequest(ctx context.Context, instanceID int64)
 
 func (s *SQLiteStore) CreateHumanDecision(ctx context.Context, decision *HumanDecisionRecord) error {
 	now := time.Now()
-	res, err := s.db.ExecContext(ctx, `INSERT INTO human_decisions (instance_id, step_id, decided_by, decision, comment, decided_at, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, decision.InstanceID, decision.StepID, decision.DecidedBy, decision.Decision, decision.Comment, decision.DecidedAt, now)
+	res, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO human_decisions (
+			instance_id, step_id, decided_by, decision, comment, decided_at, created_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		decision.InstanceID, decision.StepID, decision.DecidedBy,
+		decision.Decision, decision.Comment, decision.DecidedAt, now,
+	)
 	if err != nil {
 		return err
 	}
@@ -737,8 +893,16 @@ func (s *SQLiteStore) CreateHumanDecision(ctx context.Context, decision *HumanDe
 	decision.CreatedAt = now
 	return nil
 }
+
 func (s *SQLiteStore) GetHumanDecision(ctx context.Context, stepID int64) (*HumanDecisionRecord, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, instance_id, step_id, decided_by, decision, comment, decided_at, created_at FROM human_decisions WHERE step_id=?`, stepID)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, instance_id, step_id, decided_by, decision, comment,
+			decided_at, created_at
+			FROM human_decisions
+			WHERE step_id=?`,
+		stepID,
+	)
 	var d HumanDecisionRecord
 	if err := row.Scan(&d.ID, &d.InstanceID, &d.StepID, &d.DecidedBy, &d.Decision, &d.Comment, &d.DecidedAt, &d.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -748,17 +912,30 @@ func (s *SQLiteStore) GetHumanDecision(ctx context.Context, stepID int64) (*Huma
 	}
 	return &d, nil
 }
+
 func (s *SQLiteStore) UpdateStepStatus(ctx context.Context, stepID int64, status StepStatus) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET status=? WHERE id=?`, status, stepID)
 	return err
 }
+
 func (s *SQLiteStore) GetStepByID(ctx context.Context, stepID int64) (*WorkflowStep, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, instance_id, step_name, step_type, status, input, output, error, retry_count,
-		max_retries, compensation_retry_count, idempotency_key, started_at, completed_at, created_at FROM workflow_steps WHERE id=?`, stepID)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, instance_id, step_name, step_type, status, input, output, error,
+			retry_count, max_retries, compensation_retry_count, idempotency_key,
+			started_at, completed_at, created_at
+			FROM workflow_steps
+			WHERE id=?`,
+		stepID,
+	)
 	var step WorkflowStep
 	var inputBytes, outputBytes []byte
-	if err := row.Scan(&step.ID, &step.InstanceID, &step.StepName, &step.StepType, &step.Status, &inputBytes, &outputBytes, &step.Error,
-		&step.RetryCount, &step.MaxRetries, &step.CompensationRetryCount, &step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt); err != nil {
+	if err := row.Scan(
+		&step.ID, &step.InstanceID, &step.StepName, &step.StepType, &step.Status,
+		&inputBytes, &outputBytes, &step.Error, &step.RetryCount, &step.MaxRetries,
+		&step.CompensationRetryCount, &step.IdempotencyKey, &step.StartedAt,
+		&step.CompletedAt, &step.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEntityNotFound
 		}
@@ -770,11 +947,27 @@ func (s *SQLiteStore) GetStepByID(ctx context.Context, stepID int64) (*WorkflowS
 	}
 	return &step, nil
 }
+
 func (s *SQLiteStore) GetHumanDecisionStepByInstanceID(ctx context.Context, instanceID int64) (*WorkflowStep, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, instance_id, step_name, step_type, status, input, output, error, retry_count, max_retries, compensation_retry_count, idempotency_key, started_at, completed_at, created_at FROM workflow_steps WHERE instance_id=? AND step_type='human' ORDER BY created_at DESC LIMIT 1`, instanceID)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, instance_id, step_name, step_type, status, input, output, error,
+			retry_count, max_retries, compensation_retry_count, idempotency_key,
+			started_at, completed_at, created_at
+			FROM workflow_steps
+			WHERE instance_id=? AND step_type='human'
+			ORDER BY created_at DESC
+			LIMIT 1`,
+		instanceID,
+	)
 	var step WorkflowStep
 	var inb, outb []byte
-	if err := row.Scan(&step.ID, &step.InstanceID, &step.StepName, &step.StepType, &step.Status, &inb, &outb, &step.Error, &step.RetryCount, &step.MaxRetries, &step.CompensationRetryCount, &step.IdempotencyKey, &step.StartedAt, &step.CompletedAt, &step.CreatedAt); err != nil {
+	if err := row.Scan(
+		&step.ID, &step.InstanceID, &step.StepName, &step.StepType, &step.Status,
+		&inb, &outb, &step.Error, &step.RetryCount, &step.MaxRetries,
+		&step.CompensationRetryCount, &step.IdempotencyKey, &step.StartedAt,
+		&step.CompletedAt, &step.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEntityNotFound
 		}
@@ -788,9 +981,18 @@ func (s *SQLiteStore) GetHumanDecisionStepByInstanceID(ctx context.Context, inst
 }
 
 func (s *SQLiteStore) CreateDeadLetterRecord(ctx context.Context, rec *DeadLetterRecord) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO workflow_dlq (instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, rec.InstanceID, rec.WorkflowID, rec.StepID, rec.StepName, rec.StepType, rec.Input, rec.Error, rec.Reason, time.Now())
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO workflow_dlq (
+			instance_id, workflow_id, step_id, step_name, step_type,
+			input, error, reason, created_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.InstanceID, rec.WorkflowID, rec.StepID, rec.StepName, rec.StepType,
+		rec.Input, rec.Error, rec.Reason, time.Now(),
+	)
 	return err
 }
+
 func (s *SQLiteStore) RequeueDeadLetter(ctx context.Context, dlqID int64, newInput *json.RawMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -805,7 +1007,13 @@ func (s *SQLiteStore) RequeueDeadLetter(ctx context.Context, dlqID int64, newInp
 	}()
 	var instanceID, stepID int64
 	var input []byte
-	if err := tx.QueryRowContext(ctx, `SELECT instance_id, step_id, input FROM workflow_dlq WHERE id=?`, dlqID).Scan(&instanceID, &stepID, &input); err != nil {
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT instance_id, step_id, input
+			FROM workflow_dlq
+			WHERE id=?`,
+		dlqID,
+	).Scan(&instanceID, &stepID, &input); err != nil {
 		return err
 	}
 	var setInput any
@@ -814,13 +1022,31 @@ func (s *SQLiteStore) RequeueDeadLetter(ctx context.Context, dlqID int64, newInp
 	} else {
 		setInput = input
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_steps SET status='pending', input=?, error=NULL, retry_count=0, compensation_retry_count=0, started_at=NULL, completed_at=NULL WHERE id=?`, setInput, stepID); err != nil {
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE workflow_steps
+			SET status='pending', input=?, error=NULL, retry_count=0,
+				compensation_retry_count=0, started_at=NULL, completed_at=NULL
+			WHERE id=?`,
+		setInput, stepID,
+	); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO queue (instance_id, step_id, scheduled_at, priority) VALUES(?, ?, ?, ?)`, instanceID, stepID, time.Now(), int(PriorityNormal)); err != nil {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO queue (instance_id, step_id, scheduled_at, priority)
+			VALUES(?, ?, ?, ?)`,
+		instanceID, stepID, time.Now(), int(PriorityNormal),
+	); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET status='running', error=NULL WHERE id=? AND status IN ('failed','dlq')`, instanceID); err != nil {
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE workflow_instances
+			SET status='running', error=NULL
+			WHERE id=? AND status IN ('failed','dlq')`,
+		instanceID,
+	); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_dlq WHERE id=?`, dlqID); err != nil {
@@ -832,13 +1058,22 @@ func (s *SQLiteStore) RequeueDeadLetter(ctx context.Context, dlqID int64, newInp
 	tx = nil
 	return nil
 }
+
 func (s *SQLiteStore) ListDeadLetters(ctx context.Context, offset int, limit int) ([]DeadLetterRecord, int64, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_dlq`)
 	var total int64
 	if err := row.Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at FROM workflow_dlq ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, instance_id, workflow_id, step_id, step_name, step_type,
+			input, error, reason, created_at
+			FROM workflow_dlq
+			ORDER BY created_at DESC
+			LIMIT ? OFFSET ?`,
+		limit, offset,
+	)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -853,8 +1088,16 @@ func (s *SQLiteStore) ListDeadLetters(ctx context.Context, offset int, limit int
 	}
 	return res, total, nil
 }
+
 func (s *SQLiteStore) GetDeadLetterByID(ctx context.Context, id int64) (*DeadLetterRecord, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, instance_id, workflow_id, step_id, step_name, step_type, input, error, reason, created_at FROM workflow_dlq WHERE id=?`, id)
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, instance_id, workflow_id, step_id, step_name, step_type,
+			input, error, reason, created_at
+			FROM workflow_dlq
+			WHERE id=?`,
+		id,
+	)
 	var r DeadLetterRecord
 	if err := row.Scan(&r.ID, &r.InstanceID, &r.WorkflowID, &r.StepID, &r.StepName, &r.StepType, &r.Input, &r.Error, &r.Reason, &r.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -864,8 +1107,15 @@ func (s *SQLiteStore) GetDeadLetterByID(ctx context.Context, id int64) (*DeadLet
 	}
 	return &r, nil
 }
+
 func (s *SQLiteStore) PauseActiveStepsAndClearQueue(ctx context.Context, instanceID int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE workflow_steps SET status='paused' WHERE instance_id=? AND status IN ('running','pending','compensation')`, instanceID)
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE workflow_steps
+			SET status='paused'
+			WHERE instance_id=? AND status IN ('running','pending','compensation')`,
+		instanceID,
+	)
 	if err != nil {
 		return err
 	}
@@ -876,8 +1126,18 @@ func (s *SQLiteStore) PauseActiveStepsAndClearQueue(ctx context.Context, instanc
 func (s *SQLiteStore) CleanupOldWorkflows(ctx context.Context, daysToKeep int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -daysToKeep)
 	// delete related rows first
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM workflow_events WHERE instance_id IN (SELECT id FROM workflow_instances WHERE updated_at < ?)`, cutoff)
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM workflow_steps WHERE instance_id IN (SELECT id FROM workflow_instances WHERE updated_at < ?)`, cutoff)
+	_, _ = s.db.ExecContext(
+		ctx,
+		`DELETE FROM workflow_events
+			WHERE instance_id IN (SELECT id FROM workflow_instances WHERE updated_at < ?)`,
+		cutoff,
+	)
+	_, _ = s.db.ExecContext(
+		ctx,
+		`DELETE FROM workflow_steps
+			WHERE instance_id IN (SELECT id FROM workflow_instances WHERE updated_at < ?)`,
+		cutoff,
+	)
 	res, err := s.db.ExecContext(ctx, `DELETE FROM workflow_instances WHERE updated_at < ?`, cutoff)
 	if err != nil {
 		return 0, err
@@ -886,13 +1146,16 @@ func (s *SQLiteStore) CleanupOldWorkflows(ctx context.Context, daysToKeep int) (
 	return rows, nil
 }
 
-// Minimal implementation to satisfy interface; not used in SQLite tests
 func (s *SQLiteStore) GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, version, (SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id) as total,
-		(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='completed') as completed,
-		(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='failed') as failed,
-		(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='running') as running
-		FROM workflow_definitions wd`)
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT name, version,
+			(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id) as total,
+			(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='completed') as completed,
+			(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='failed') as failed,
+			(SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=wd.id AND status='running') as running
+			FROM workflow_definitions wd`,
+	)
 	if err != nil {
 		return nil, err
 	}
