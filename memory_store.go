@@ -743,6 +743,62 @@ func (s *MemoryStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowIn
 	return instances, nil
 }
 
+func (s *MemoryStore) GetWorkflowInstancesPaginated(ctx context.Context, workflowID string, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	instances := make([]WorkflowInstance, 0)
+	for _, instance := range s.instances {
+		if instance.WorkflowID == workflowID {
+			instances = append(instances, *instance)
+		}
+	}
+
+	sort.Slice(instances, func(i, j int) bool {
+		return instances[i].CreatedAt.After(instances[j].CreatedAt)
+	})
+
+	total := int64(len(instances))
+
+	if offset >= len(instances) {
+		return []WorkflowInstance{}, total, nil
+	}
+
+	end := offset + limit
+	if end > len(instances) {
+		end = len(instances)
+	}
+
+	return instances[offset:end], total, nil
+}
+
+func (s *MemoryStore) GetAllWorkflowInstancesPaginated(ctx context.Context, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	instances := make([]WorkflowInstance, 0, len(s.instances))
+	for _, instance := range s.instances {
+		instances = append(instances, *instance)
+	}
+
+	sort.Slice(instances, func(i, j int) bool {
+		return instances[i].CreatedAt.After(instances[j].CreatedAt)
+	})
+
+	total := int64(len(instances))
+
+	if offset >= len(instances) {
+		return []WorkflowInstance{}, total, nil
+	}
+
+	end := offset + limit
+	if end > len(instances) {
+		end = len(instances)
+	}
+
+	return instances[offset:end], total, nil
+}
+
 func (s *MemoryStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	return s.GetStepsByInstance(ctx, instanceID)
 }

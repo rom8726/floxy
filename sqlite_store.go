@@ -510,7 +510,8 @@ func (s *SQLiteStore) GetSummaryStats(ctx context.Context) (*SummaryStats, error
 		SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END)
 		FROM workflow_instances`)
 	var stats SummaryStats
-	if err := row.Scan(&stats.TotalWorkflows, &stats.CompletedWorkflows, &stats.FailedWorkflows, &stats.RunningWorkflows, &stats.PendingWorkflows); err != nil {
+	if err := row.Scan(&stats.TotalWorkflows, &stats.CompletedWorkflows, &stats.FailedWorkflows,
+		&stats.RunningWorkflows, &stats.PendingWorkflows); err != nil {
 		return nil, err
 	}
 	// active = running+pending in this simplified model
@@ -532,7 +533,8 @@ func (s *SQLiteStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowI
 	for rows.Next() {
 		var a ActiveWorkflowInstance
 		var currentStep *string
-		if err := rows.Scan(&a.ID, &a.WorkflowID, &a.WorkflowName, &a.Status, &a.StartedAt, &a.UpdatedAt, &currentStep, &a.TotalSteps, &a.CompletedSteps, &a.RolledBackSteps); err != nil {
+		if err := rows.Scan(&a.ID, &a.WorkflowID, &a.WorkflowName, &a.Status, &a.StartedAt, &a.UpdatedAt,
+			&currentStep, &a.TotalSteps, &a.CompletedSteps, &a.RolledBackSteps); err != nil {
 			return nil, err
 		}
 		if currentStep != nil {
@@ -543,7 +545,8 @@ func (s *SQLiteStore) GetActiveInstances(ctx context.Context) ([]ActiveWorkflowI
 	return res, nil
 }
 func (s *SQLiteStore) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, version, definition, created_at FROM workflow_definitions ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, version, definition, created_at 
+FROM workflow_definitions ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +564,8 @@ func (s *SQLiteStore) GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDef
 	return res, nil
 }
 func (s *SQLiteStore) GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at FROM workflow_instances WHERE workflow_id=? ORDER BY id`, workflowID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, 
+       completed_at, created_at, updated_at FROM workflow_instances WHERE workflow_id=? ORDER BY id`, workflowID)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +574,8 @@ func (s *SQLiteStore) GetWorkflowInstances(ctx context.Context, workflowID strin
 	for rows.Next() {
 		var inst WorkflowInstance
 		var inb, outb []byte
-		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error, &inst.StartedAt, &inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
+		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error, &inst.StartedAt,
+			&inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
 			return nil, err
 		}
 		inst.Input = json.RawMessage(inb)
@@ -582,7 +587,8 @@ func (s *SQLiteStore) GetWorkflowInstances(ctx context.Context, workflowID strin
 	return res, nil
 }
 func (s *SQLiteStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at FROM workflow_instances ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, 
+       completed_at, created_at, updated_at FROM workflow_instances ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +597,8 @@ func (s *SQLiteStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowIn
 	for rows.Next() {
 		var inst WorkflowInstance
 		var inb, outb []byte
-		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error, &inst.StartedAt, &inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
+		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error, &inst.StartedAt,
+			&inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
 			return nil, err
 		}
 		inst.Input = json.RawMessage(inb)
@@ -602,6 +609,70 @@ func (s *SQLiteStore) GetAllWorkflowInstances(ctx context.Context) ([]WorkflowIn
 	}
 	return res, nil
 }
+
+func (s *SQLiteStore) GetWorkflowInstancesPaginated(ctx context.Context, workflowID string, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_instances WHERE workflow_id=?`, workflowID)
+	var total int64
+	if err := row.Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.db.QueryContext(ctx, `SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at 
+FROM workflow_instances WHERE workflow_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`, workflowID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var res []WorkflowInstance
+	for rows.Next() {
+		var inst WorkflowInstance
+		var inb, outb []byte
+		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error, &inst.StartedAt,
+			&inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		inst.Input = inb
+		if outb != nil {
+			inst.Output = outb
+		}
+		res = append(res, inst)
+	}
+	return res, total, nil
+}
+
+func (s *SQLiteStore) GetAllWorkflowInstancesPaginated(ctx context.Context, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_instances`)
+	var total int64
+	if err := row.Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, workflow_id, status, input, output, error, started_at, completed_at, created_at, updated_at
+FROM workflow_instances ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var res []WorkflowInstance
+	for rows.Next() {
+		var inst WorkflowInstance
+		var inb, outb []byte
+		if err := rows.Scan(&inst.ID, &inst.WorkflowID, &inst.Status, &inb, &outb, &inst.Error,
+			&inst.StartedAt, &inst.CompletedAt, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		inst.Input = inb
+		if outb != nil {
+			inst.Output = outb
+		}
+		res = append(res, inst)
+	}
+	return res, total, nil
+}
+
 func (s *SQLiteStore) GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error) {
 	return s.GetStepsByInstance(ctx, instanceID)
 }

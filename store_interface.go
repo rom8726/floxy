@@ -78,6 +78,8 @@ type Store interface {
 	GetWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error)
 	GetWorkflowInstances(ctx context.Context, workflowID string) ([]WorkflowInstance, error)
 	GetAllWorkflowInstances(ctx context.Context) ([]WorkflowInstance, error)
+	GetWorkflowInstancesPaginated(ctx context.Context, workflowID string, offset int, limit int) ([]WorkflowInstance, int64, error)
+	GetAllWorkflowInstancesPaginated(ctx context.Context, offset int, limit int) ([]WorkflowInstance, int64, error)
 	GetWorkflowSteps(ctx context.Context, instanceID int64) ([]WorkflowStep, error)
 	GetWorkflowEvents(ctx context.Context, instanceID int64) ([]WorkflowEvent, error)
 	GetWorkflowStats(ctx context.Context) ([]WorkflowStats, error)

@@ -2403,6 +2403,86 @@ func (_c *MockStore_GetAllWorkflowInstances_Call) RunAndReturn(run func(ctx cont
 	return _c
 }
 
+// GetAllWorkflowInstancesPaginated provides a mock function for the type MockStore
+func (_mock *MockStore) GetAllWorkflowInstancesPaginated(ctx context.Context, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	ret := _mock.Called(ctx, offset, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAllWorkflowInstancesPaginated")
+	}
+
+	var r0 []WorkflowInstance
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]WorkflowInstance, int64, error)); ok {
+		return returnFunc(ctx, offset, limit)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []WorkflowInstance); ok {
+		r0 = returnFunc(ctx, offset, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]WorkflowInstance)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) int64); ok {
+		r1 = returnFunc(ctx, offset, limit)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, int, int) error); ok {
+		r2 = returnFunc(ctx, offset, limit)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockStore_GetAllWorkflowInstancesPaginated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAllWorkflowInstancesPaginated'
+type MockStore_GetAllWorkflowInstancesPaginated_Call struct {
+	*mock.Call
+}
+
+// GetAllWorkflowInstancesPaginated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - offset int
+//   - limit int
+func (_e *MockStore_Expecter) GetAllWorkflowInstancesPaginated(ctx interface{}, offset interface{}, limit interface{}) *MockStore_GetAllWorkflowInstancesPaginated_Call {
+	return &MockStore_GetAllWorkflowInstancesPaginated_Call{Call: _e.mock.On("GetAllWorkflowInstancesPaginated", ctx, offset, limit)}
+}
+
+func (_c *MockStore_GetAllWorkflowInstancesPaginated_Call) Run(run func(ctx context.Context, offset int, limit int)) *MockStore_GetAllWorkflowInstancesPaginated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetAllWorkflowInstancesPaginated_Call) Return(workflowInstances []WorkflowInstance, n int64, err error) *MockStore_GetAllWorkflowInstancesPaginated_Call {
+	_c.Call.Return(workflowInstances, n, err)
+	return _c
+}
+
+func (_c *MockStore_GetAllWorkflowInstancesPaginated_Call) RunAndReturn(run func(ctx context.Context, offset int, limit int) ([]WorkflowInstance, int64, error)) *MockStore_GetAllWorkflowInstancesPaginated_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCancelRequest provides a mock function for the type MockStore
 func (_mock *MockStore) GetCancelRequest(ctx context.Context, instanceID int64) (*WorkflowCancelRequest, error) {
 	ret := _mock.Called(ctx, instanceID)
@@ -3277,6 +3357,92 @@ func (_c *MockStore_GetWorkflowInstances_Call) Return(workflowInstances []Workfl
 }
 
 func (_c *MockStore_GetWorkflowInstances_Call) RunAndReturn(run func(ctx context.Context, workflowID string) ([]WorkflowInstance, error)) *MockStore_GetWorkflowInstances_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetWorkflowInstancesPaginated provides a mock function for the type MockStore
+func (_mock *MockStore) GetWorkflowInstancesPaginated(ctx context.Context, workflowID string, offset int, limit int) ([]WorkflowInstance, int64, error) {
+	ret := _mock.Called(ctx, workflowID, offset, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetWorkflowInstancesPaginated")
+	}
+
+	var r0 []WorkflowInstance
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int) ([]WorkflowInstance, int64, error)); ok {
+		return returnFunc(ctx, workflowID, offset, limit)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int) []WorkflowInstance); ok {
+		r0 = returnFunc(ctx, workflowID, offset, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]WorkflowInstance)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, int, int) int64); ok {
+		r1 = returnFunc(ctx, workflowID, offset, limit)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, string, int, int) error); ok {
+		r2 = returnFunc(ctx, workflowID, offset, limit)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockStore_GetWorkflowInstancesPaginated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetWorkflowInstancesPaginated'
+type MockStore_GetWorkflowInstancesPaginated_Call struct {
+	*mock.Call
+}
+
+// GetWorkflowInstancesPaginated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - workflowID string
+//   - offset int
+//   - limit int
+func (_e *MockStore_Expecter) GetWorkflowInstancesPaginated(ctx interface{}, workflowID interface{}, offset interface{}, limit interface{}) *MockStore_GetWorkflowInstancesPaginated_Call {
+	return &MockStore_GetWorkflowInstancesPaginated_Call{Call: _e.mock.On("GetWorkflowInstancesPaginated", ctx, workflowID, offset, limit)}
+}
+
+func (_c *MockStore_GetWorkflowInstancesPaginated_Call) Run(run func(ctx context.Context, workflowID string, offset int, limit int)) *MockStore_GetWorkflowInstancesPaginated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockStore_GetWorkflowInstancesPaginated_Call) Return(workflowInstances []WorkflowInstance, n int64, err error) *MockStore_GetWorkflowInstancesPaginated_Call {
+	_c.Call.Return(workflowInstances, n, err)
+	return _c
+}
+
+func (_c *MockStore_GetWorkflowInstancesPaginated_Call) RunAndReturn(run func(ctx context.Context, workflowID string, offset int, limit int) ([]WorkflowInstance, int64, error)) *MockStore_GetWorkflowInstancesPaginated_Call {
 	_c.Call.Return(run)
 	return _c
 }

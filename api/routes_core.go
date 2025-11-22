@@ -10,6 +10,13 @@ import (
 	"github.com/rom8726/floxy"
 )
 
+type PaginatedInstancesResponse struct {
+	Items    []floxy.WorkflowInstance `json:"items"`
+	Page     int                      `json:"page"`
+	PageSize int                      `json:"page_size"`
+	Total    int64                    `json:"total"`
+}
+
 func RegisterCoreRoutes(mux *http.ServeMux, store floxy.Store) {
 	// Workflow definitions
 	mux.HandleFunc("GET /api/workflows", func(w http.ResponseWriter, req *http.Request) {
@@ -114,15 +121,37 @@ func HandleGetWorkflowInstances(store floxy.Store) func(http.ResponseWriter, *ht
 			return
 		}
 
-		instances, err := store.GetWorkflowInstances(ctx, workflowID)
+		// pagination: default page=1, page_size=20
+		page := 1
+		pageSize := 20
+		if v := r.URL.Query().Get("page"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				page = n
+			}
+		}
+		if v := r.URL.Query().Get("page_size"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+				pageSize = n
+			}
+		}
+
+		offset := (page - 1) * pageSize
+		instances, total, err := store.GetWorkflowInstancesPaginated(ctx, workflowID, offset, pageSize)
 		if err != nil {
 			WriteErrorResponse(w, fmt.Errorf("failed to fetch workflow instances: %w", err), http.StatusInternalServerError)
 
 			return
 		}
 
+		resp := PaginatedInstancesResponse{
+			Items:    instances,
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(instances)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -130,15 +159,37 @@ func HandleGetAllInstances(store floxy.Store) func(http.ResponseWriter, *http.Re
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		instances, err := store.GetAllWorkflowInstances(ctx)
+		// pagination: default page=1, page_size=20
+		page := 1
+		pageSize := 20
+		if v := r.URL.Query().Get("page"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				page = n
+			}
+		}
+		if v := r.URL.Query().Get("page_size"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+				pageSize = n
+			}
+		}
+
+		offset := (page - 1) * pageSize
+		instances, total, err := store.GetAllWorkflowInstancesPaginated(ctx, offset, pageSize)
 		if err != nil {
 			WriteErrorResponse(w, fmt.Errorf("failed to fetch instances: %w", err), http.StatusInternalServerError)
 
 			return
 		}
 
+		resp := PaginatedInstancesResponse{
+			Items:    instances,
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(instances)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
