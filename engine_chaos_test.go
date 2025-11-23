@@ -213,7 +213,7 @@ WHERE status = 'failed'`
 			nonRolledBackQuery := `
 				SELECT id, step_name, status
 				FROM workflows.workflow_steps
-				WHERE instance_id = $1 AND status != 'rolled_back'`
+				WHERE instance_id = $1 AND status != 'rolled_back' AND status != 'skipped'`
 			stepsRows, err := v.pool.Query(ctx, nonRolledBackQuery, instanceID)
 			if err != nil {
 				return fmt.Errorf("failed to query steps for instance %d: %w", instanceID, err)
@@ -245,7 +245,7 @@ WHERE status = 'failed'`
 				SELECT ws.id, ws.step_name, ws.status, ws.created_at::text
 				FROM workflows.workflow_steps ws
 				WHERE ws.instance_id = $1
-				  AND ws.status != 'rolled_back'
+				  AND ws.status != 'rolled_back' AND status != 'skipped'
 				  AND ws.created_at > (SELECT created_at FROM workflows.workflow_steps WHERE id = $2)
 				ORDER BY ws.created_at`
 			stepsRows, err := v.pool.Query(ctx, nonRolledBackQuery, instanceID, *savepointID)

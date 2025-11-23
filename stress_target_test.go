@@ -23,20 +23,20 @@ func nestedWorkflow(t *testing.T) *WorkflowDefinition {
 	workflowDef, err := NewBuilder("nested-workflow", 1).
 		Step("validate", "validation").
 		Then("process-payment", "payment", WithStepMaxRetries(3)).
-		OnFailure("refund-payment", "compensation", WithStepMetadata(map[string]any{"action": "refund"})).
+		OnFailure("refund-payment", "compensation", WithStepMaxRetries(3), WithStepMetadata(map[string]any{"action": "refund"})).
 		SavePoint("payment-checkpoint").
 		Fork("nested-parallel",
 			func(b *Builder) {
 				b.Step("reserve-inventory-1", "inventory").
-					OnFailure("release-inventory-1", "compensation", WithStepMetadata(map[string]any{"action": "release"})).
+					OnFailure("release-inventory-1", "compensation", WithStepMaxRetries(3), WithStepMetadata(map[string]any{"action": "release"})).
 					Then("ship-1", "shipping", WithStepMaxRetries(1)).
-					OnFailure("cancel-shipment-1", "compensation", WithStepMetadata(map[string]any{"action": "cancel"}))
+					OnFailure("cancel-shipment-1", "compensation", WithStepMaxRetries(3), WithStepMetadata(map[string]any{"action": "cancel"}))
 			},
 			func(b *Builder) {
 				b.Step("reserve-inventory-2", "inventory").
-					OnFailure("release-inventory-2", "compensation", WithStepMetadata(map[string]any{"action": "release"})).
+					OnFailure("release-inventory-2", "compensation", WithStepMaxRetries(3), WithStepMetadata(map[string]any{"action": "release"})).
 					Then("ship-2", "shipping", WithStepMaxRetries(1)).
-					OnFailure("cancel-shipment-2", "compensation", WithStepMetadata(map[string]any{"action": "cancel"}))
+					OnFailure("cancel-shipment-2", "compensation", WithStepMaxRetries(3), WithStepMetadata(map[string]any{"action": "cancel"}))
 			},
 		).
 		Join("join", JoinStrategyAll).

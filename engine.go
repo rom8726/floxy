@@ -932,7 +932,11 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 			}
 
 			// Re-enqueue for retry
-			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, stepDef.Delay); err != nil {
+			retryDelay := CalculateRetryDelay(onFailureStep.RetryStrategy, onFailureStep.RetryDelay, newRetryCount)
+			if retryDelay == 0 {
+				retryDelay = onFailureStep.Delay
+			}
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, retryDelay); err != nil {
 				return fmt.Errorf("enqueue compensation retry: %w", err)
 			}
 
@@ -2440,7 +2444,10 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	}
 
 	// Enqueue compensation step for execution
-	retryDelay := CalculateRetryDelay(stepDef.RetryStrategy, stepDef.RetryDelay, newRetryCount)
+	retryDelay := CalculateRetryDelay(onFailureStep.RetryStrategy, onFailureStep.RetryDelay, newRetryCount)
+	if retryDelay == 0 {
+		retryDelay = onFailureStep.Delay
+	}
 	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, retryDelay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
