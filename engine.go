@@ -164,6 +164,10 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 			return fmt.Errorf("get workflow definition: %w", err)
 		}
 
+		if err := engine.validateDefinition(def); err != nil {
+			return fmt.Errorf("invalid workflow definition: %w", err)
+		}
+
 		instance, err := engine.store.CreateInstance(ctx, workflowID, input)
 		if err != nil {
 			return fmt.Errorf("create instance: %w", err)
@@ -2215,28 +2219,7 @@ func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {
 		return fmt.Errorf("start step not found: %s", def.Definition.Start)
 	}
 
-	for stepName, stepDef := range def.Definition.Steps {
-		for _, nextStep := range stepDef.Next {
-			if _, ok := def.Definition.Steps[nextStep]; !ok {
-				return fmt.Errorf("step %s references unknown step: %s", stepName, nextStep)
-			}
-		}
-
-		if stepDef.OnFailure != "" {
-			if _, ok := def.Definition.Steps[stepDef.OnFailure]; !ok {
-				return fmt.Errorf("step %s references unknown compensation step: %s",
-					stepName, stepDef.OnFailure)
-			}
-		}
-
-		for _, parallelStep := range stepDef.Parallel {
-			if _, ok := def.Definition.Steps[parallelStep]; !ok {
-				return fmt.Errorf("step %s references unknown parallel step: %s", stepName, parallelStep)
-			}
-		}
-	}
-
-	return nil
+	return ValidateWorkflowDefinition(def)
 }
 
 func (engine *Engine) rollbackToSavePointOrRoot(

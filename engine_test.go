@@ -1343,8 +1343,8 @@ func Test_validateDefinition_Success(t *testing.T) {
 		Definition: GraphDefinition{
 			Start: "A",
 			Steps: map[string]*StepDefinition{
-				"A": {Name: "A", Type: StepTypeTask, Next: []string{"B"}, Prev: rootStepName},
-				"B": {Name: "B", Type: StepTypeTask, Prev: "A"},
+				"A": {Name: "A", Type: StepTypeTask, Next: []string{"B"}, Prev: rootStepName, Handler: "handlerA"},
+				"B": {Name: "B", Type: StepTypeTask, Prev: "A", Handler: "handlerB"},
 			},
 		},
 	}
