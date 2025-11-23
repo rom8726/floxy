@@ -12,7 +12,8 @@ floxy means "flow" + "flux" + "tiny".
 
 ### ⚠ Disclaimer
 
-Floxy is **experimental** and **not tested in production**.
+Floxy is an early-stage project.
+It is under active development and not battle-tested yet.
 The software is provided **“as is”**, without any warranties or guarantees of stability, correctness, or fitness for any particular purpose.
 By using this project, you acknowledge that **all risks are your own**, and the authors cannot be held responsible for any damages, data loss, or failures resulting from its use.
 
