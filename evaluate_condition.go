@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -29,12 +31,12 @@ func evaluateCondition(expr string, stepCtx StepContext) (bool, error) {
 		if !exists {
 			var err error
 			tpl, err = template.New("condition").Funcs(template.FuncMap{
-				"eq": func(a, b any) bool { return compareEqual(a, b) },
-				"ne": func(a, b any) bool { return !compareEqual(a, b) },
-				"gt": func(a, b any) bool { return compareNumbers(a, b) > 0 },
-				"lt": func(a, b any) bool { return compareNumbers(a, b) < 0 },
-				"ge": func(a, b any) bool { return compareNumbers(a, b) >= 0 },
-				"le": func(a, b any) bool { return compareNumbers(a, b) <= 0 },
+				"eq": func(a, b any) bool { return compareEqualDecimal(a, b) },
+				"ne": func(a, b any) bool { return !compareEqualDecimal(a, b) },
+				"gt": func(a, b any) bool { return compareNumbersDecimal(a, b) > 0 },
+				"lt": func(a, b any) bool { return compareNumbersDecimal(a, b) < 0 },
+				"ge": func(a, b any) bool { return compareNumbersDecimal(a, b) >= 0 },
+				"le": func(a, b any) bool { return compareNumbersDecimal(a, b) <= 0 },
 				// Additional helper functions
 				"contains":  func(s, substr string) bool { return strings.Contains(s, substr) },
 				"hasPrefix": func(s, prefix string) bool { return strings.HasPrefix(s, prefix) },
@@ -80,32 +82,35 @@ func evaluateCondition(expr string, stepCtx StepContext) (bool, error) {
 	}
 }
 
-// compareEqual compares two values for equality with better type handling
-func compareEqual(a, b any) bool {
+// compareEqualDecimal compares two values for equality using decimal for numeric precision
+func compareEqualDecimal(a, b any) bool {
 	// Handle nil cases
 	if a == nil && b == nil {
 		return true
 	}
 	if a == nil && b != nil {
 		// nil compared to a number should check if b is zero
-		return toFloat64(b) == 0
+		bDec, err := toDecimal(b)
+		return err == nil && bDec.IsZero()
 	}
 	if a != nil && b == nil {
 		// number compared to nil should check if a is zero
-		return toFloat64(a) == 0
+		aDec, err := toDecimal(a)
+		return err == nil && aDec.IsZero()
 	}
 
-	// Try numeric comparison for numeric types
-	aFloat := toFloat64(a)
-	bFloat := toFloat64(b)
+	// Try to convert both to decimal for precise comparison
+	aDec, aErr := toDecimal(a)
+	bDec, bErr := toDecimal(b)
 
-	// If both can be converted to numbers, compare as numbers
-	// Check if conversion was successful by comparing with original values
-	aIsNumeric := isNumericType(a) || isNumericString(a)
-	bIsNumeric := isNumericType(b) || isNumericString(b)
+	// If both can be converted to decimal, compare as decimals
+	if aErr == nil && bErr == nil {
+		return aDec.Equal(bDec)
+	}
 
-	if aIsNumeric && bIsNumeric {
-		return aFloat == bFloat
+	// If only one is numeric, they're not equal
+	if (aErr == nil) != (bErr == nil) {
+		return false
 	}
 
 	// Try direct comparison
@@ -117,116 +122,111 @@ func compareEqual(a, b any) bool {
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
-// isNumericType checks if a value is a numeric type
-func isNumericType(v any) bool {
-	switch v.(type) {
-	case int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64, json.Number, bool:
-		return true
-	default:
-		return false
-	}
-}
+// compareNumbersDecimal compares two numbers using decimal for precision
+func compareNumbersDecimal(a, b any) int {
+	aDec, aErr := toDecimal(a)
+	bDec, bErr := toDecimal(b)
 
-// isNumericString checks if a string can be parsed as a number
-func isNumericString(v any) bool {
-	if s, ok := v.(string); ok {
-		s = strings.TrimSpace(s)
-		if _, err := strconv.ParseFloat(s, 64); err == nil {
-			return true
-		}
-		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return true
-		}
+	// If either conversion fails, fallback to treating non-numeric as 0
+	if aErr != nil {
+		aDec = decimal.Zero
+	}
+	if bErr != nil {
+		bDec = decimal.Zero
 	}
 
-	return false
+	return aDec.Cmp(bDec)
 }
 
-func compareNumbers(a, b any) int {
-	valA := toFloat64(a)
-	valB := toFloat64(b)
-
-	if valA > valB {
-		return 1
-	} else if valA < valB {
-		return -1
-	}
-
-	return 0
-}
-
-func toFloat64(v any) float64 {
+// toDecimal converts various types to decimal.Decimal for precise arithmetic
+func toDecimal(v any) (decimal.Decimal, error) {
 	if v == nil {
-		return 0
+		return decimal.Zero, nil
 	}
 
-	// Handle json.Number type (common in JSON parsing)
 	switch val := v.(type) {
+	case decimal.Decimal:
+		return val, nil
 	case json.Number:
-		if f, err := val.Float64(); err == nil {
-			return f
-		}
-		return 0
+		return decimal.NewFromString(string(val))
 	case string:
-		// Try to parse string as number
 		val = strings.TrimSpace(val)
-		if f, err := strconv.ParseFloat(val, 64); err == nil {
-			return f
+		if val == "" {
+			return decimal.Zero, nil
 		}
-		// Try parsing as int
-		if i, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return float64(i)
-		}
-		return 0
+		return decimal.NewFromString(val)
 	case int:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case int8:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case int16:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case int32:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case int64:
-		return float64(val)
+		return decimal.NewFromInt(val), nil
 	case uint:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case uint8:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case uint16:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case uint32:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case uint64:
-		return float64(val)
+		return decimal.NewFromInt(int64(val)), nil
 	case float32:
-		return float64(val)
+		return decimal.NewFromFloat32(val), nil
 	case float64:
-		return val
+		return decimal.NewFromFloat(val), nil
 	case bool:
-		// Handle boolean as 0 or 1
 		if val {
-			return 1
+			return decimal.NewFromInt(1), nil
 		}
-		return 0
+		return decimal.Zero, nil
 	default:
 		// Use reflection as fallback
 		rv := reflect.ValueOf(v)
 		switch rv.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return float64(rv.Int())
+			return decimal.NewFromInt(rv.Int()), nil
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return float64(rv.Uint())
-		case reflect.Float32, reflect.Float64:
-			return rv.Float()
-		case reflect.String:
-			s := rv.String()
-			if f, err := strconv.ParseFloat(s, 64); err == nil {
-				return f
+			// Handle potential overflow
+			uintVal := rv.Uint()
+			if uintVal > 9223372036854775807 {
+				return decimal.NewFromString(fmt.Sprintf("%d", uintVal))
 			}
+			return decimal.NewFromInt(int64(uintVal)), nil
+		case reflect.Float32, reflect.Float64:
+			return decimal.NewFromFloat(rv.Float()), nil
+		case reflect.String:
+			s := strings.TrimSpace(rv.String())
+			if s == "" {
+				return decimal.Zero, nil
+			}
+			return decimal.NewFromString(s)
+		case reflect.Bool:
+			if rv.Bool() {
+				return decimal.NewFromInt(1), nil
+			}
+			return decimal.Zero, nil
+		default:
+			return decimal.Zero, fmt.Errorf("cannot convert %T to decimal", v)
 		}
-		// For non-numeric types, return 0
+	}
+}
+
+func compareNumbers(a, b any) int {
+	return compareNumbersDecimal(a, b)
+}
+
+func toFloat64(v any) float64 {
+	dec, err := toDecimal(v)
+	if err != nil {
 		return 0
 	}
+
+	f, _ := dec.Float64()
+
+	return f
 }
