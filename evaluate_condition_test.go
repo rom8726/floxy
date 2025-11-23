@@ -3,6 +3,8 @@ package floxy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -250,7 +252,7 @@ func TestEvaluateConditionWithRealWorkflow(t *testing.T) {
 		WithEngineTxManager(txManager),
 		WithEngineCancelInterval(time.Minute),
 	)
-	defer engine.Shutdown()
+	defer func() { _ = engine.Shutdown() }()
 
 	engine.RegisterHandler(&ConditionTestHandler{})
 
@@ -360,6 +362,179 @@ func TestEvaluateConditionWithRealWorkflow(t *testing.T) {
 				assert.NotContains(t, stepNames, "else_step", "Else step should not be executed when condition is true")
 			} else {
 				assert.NotContains(t, stepNames, "next_step", "Next step should not be executed when condition is false")
+			}
+		})
+	}
+}
+
+func TestEvaluateCondition_ConcurrentConditionEvaluation(t *testing.T) {
+	// Create multiple concurrent condition evaluations
+	conditions := []string{
+		"{{ gt .count 5 }}",
+		"{{ eq .name \"test\" }}",
+		"{{ lt .value 100 }}",
+		"{{ ge .score 50 }}",
+		"{{ ne .status \"failed\" }}",
+	}
+
+	var wg sync.WaitGroup
+	errors := make([]error, 0)
+	var errorsMu sync.Mutex
+
+	// Run concurrent evaluations
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+
+			stepCtx := &executionContext{
+				variables: map[string]any{
+					"count":  index,
+					"name":   fmt.Sprintf("test%d", index%2),
+					"value":  index * 10,
+					"score":  index % 100,
+					"status": "running",
+				},
+			}
+
+			expr := conditions[index%len(conditions)]
+			_, err := evaluateCondition(expr, stepCtx)
+			if err != nil {
+				errorsMu.Lock()
+				errors = append(errors, err)
+				errorsMu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Check that no errors occurred during concurrent evaluation
+	assert.Empty(t, errors, "No errors should occur during concurrent condition evaluation")
+}
+
+func TestEvaluateCondition_NumberTypeHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    any
+		expected float64
+	}{
+		{"nil", nil, 0},
+		{"int", 42, 42},
+		{"int8", int8(42), 42},
+		{"int16", int16(42), 42},
+		{"int32", int32(42), 42},
+		{"int64", int64(42), 42},
+		{"uint", uint(42), 42},
+		{"uint8", uint8(42), 42},
+		{"uint16", uint16(42), 42},
+		{"uint32", uint32(42), 42},
+		{"uint64", uint64(42), 42},
+		{"float32", float32(42.5), 42.5},
+		{"float64", float64(42.5), 42.5},
+		{"string number", "42", 42},
+		{"string float", "42.5", 42.5},
+		{"string with spaces", " 42 ", 42},
+		{"json.Number int", json.Number("42"), 42},
+		{"json.Number float", json.Number("42.5"), 42.5},
+		{"bool true", true, 1},
+		{"bool false", false, 0},
+		{"invalid string", "not a number", 0},
+		{"empty string", "", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := toFloat64(tt.value)
+			assert.Equal(t, tt.expected, result, "toFloat64(%v) should return %v", tt.value, tt.expected)
+		})
+	}
+}
+
+func TestEvaluateCondition_CompareNumbersWithDifferentTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        any
+		b        any
+		expected int
+	}{
+		{"int vs float", 42, 42.0, 0},
+		{"string vs int", "42", 42, 0},
+		{"json.Number vs int", json.Number("42"), 42, 0},
+		{"bool vs int", true, 1, 0},
+		{"nil vs zero", nil, 0, 0},
+		{"greater than", 43, 42, 1},
+		{"less than", 41, 42, -1},
+		{"string greater", "43", 42, 1},
+		{"json.Number less", json.Number("41"), 42, -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := compareNumbers(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result, "compareNumbers(%v, %v) should return %v", tt.a, tt.b, tt.expected)
+		})
+	}
+}
+
+func TestEvaluateCondition_ConditionEvaluationWithComplexData(t *testing.T) {
+	tests := []struct {
+		name      string
+		expr      string
+		data      map[string]any
+		expected  bool
+		shouldErr bool
+	}{
+		{
+			name:     "json.Number comparison",
+			expr:     "{{ gt .amount 100 }}",
+			data:     map[string]any{"amount": json.Number("150")},
+			expected: true,
+		},
+		{
+			name:     "string number comparison",
+			expr:     "{{ eq .count 42 }}",
+			data:     map[string]any{"count": "42"},
+			expected: true,
+		},
+		{
+			name:     "boolean comparison",
+			expr:     "{{ eq .active 1 }}",
+			data:     map[string]any{"active": true},
+			expected: true,
+		},
+		{
+			name:     "nil handling",
+			expr:     "{{ eq .missing 0 }}",
+			data:     map[string]any{},
+			expected: true,
+		},
+		{
+			name:     "string contains function",
+			expr:     "{{ contains .message \"error\" }}",
+			data:     map[string]any{"message": "error occurred"},
+			expected: true,
+		},
+		{
+			name:     "string hasPrefix function",
+			expr:     "{{ hasPrefix .path \"/api\" }}",
+			data:     map[string]any{"path": "/api/v1/users"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stepCtx := &executionContext{
+				variables: tt.data,
+			}
+
+			result, err := evaluateCondition(tt.expr, stepCtx)
+			if tt.shouldErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result, "Condition evaluation failed for: %s", tt.expr)
 			}
 		})
 	}
