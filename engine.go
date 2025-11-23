@@ -327,6 +327,17 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 		}
 
+		// Do not execute skipped or paused steps
+		if step.Status == StepStatusSkipped ||
+			step.Status == StepStatusPaused ||
+			step.Status == StepStatusRolledBack {
+			if err := engine.store.RemoveFromQueue(ctx, step.ID); err != nil {
+				return fmt.Errorf("remove step from queue: %w", err)
+			}
+
+			return nil
+		}
+
 		// Check if this is a compensation
 		if step.Status == StepStatusCompensation {
 			// For distributed setup: if local engine doesn't have the compensation handler,
@@ -373,8 +384,6 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 
 			return engine.executeCompensationStep(ctx, instance, step)
-		} else if step.Status == StepStatusRolledBack {
-			return nil
 		}
 
 		// Distributed handlers: if this is a task step and no local handler is registered,
