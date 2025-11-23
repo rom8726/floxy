@@ -51,10 +51,6 @@ func Test_handleStepSuccess_SimpleNextFlow(t *testing.T) {
 	// 5) notifyJoinSteps path will need instance, def, steps list; provide empty steps list without joins
 	store.EXPECT().GetInstance(mock.Anything, instance.ID).Return(instance, nil)
 	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil)
-	store.EXPECT().GetStepsByInstance(mock.Anything, instance.ID).Return([]WorkflowStep{
-		// include the just-finished step to provide input for potential join (not used here)
-		{ID: step.ID, InstanceID: instance.ID, StepName: step.StepName, StepType: step.StepType, Status: StepStatusCompleted, Input: json.RawMessage(`{"in":1}`)},
-	}, nil)
 	// 6) Enqueue next step B via enqueueNextSteps -> CreateStep + EnqueueStep
 	next := &WorkflowStep{
 		InstanceID: instance.ID,
@@ -142,9 +138,6 @@ func Test_handleStepFailure_DLQEnabled_NoRetry(t *testing.T) {
 	// 4) notifyJoinSteps (no joins) -> GetInstance, GetWorkflowDefinition, GetStepsByInstance
 	store.EXPECT().GetInstance(mock.Anything, instance.ID).Return(instance, nil)
 	store.EXPECT().GetWorkflowDefinition(mock.Anything, def.ID).Return(def, nil)
-	store.EXPECT().GetStepsByInstance(mock.Anything, instance.ID).Return([]WorkflowStep{
-		{ID: step.ID, InstanceID: instance.ID, StepName: step.StepName, StepType: step.StepType, Status: StepStatusPaused, Input: json.RawMessage(`{"in":1}`)},
-	}, nil)
 	// 5) Create DLQ record
 	store.EXPECT().CreateDeadLetterRecord(mock.Anything, mock.MatchedBy(func(rec *DeadLetterRecord) bool {
 		return rec != nil && rec.InstanceID == instance.ID && rec.StepID == step.ID && rec.WorkflowID == def.ID && rec.Reason != ""

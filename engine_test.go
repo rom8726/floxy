@@ -940,8 +940,6 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepCompleted, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "step2"
 	})).Return(nil)

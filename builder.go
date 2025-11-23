@@ -763,11 +763,11 @@ func (builder *Builder) traverseBranchForCondition(stepName string, visited map[
 	}
 
 	// Also check Else branch if exists
-	//if stepDef.Else != "" {
-	//	if result := builder.traverseBranchForCondition(stepDef.Else, visited); result != "" {
-	//		return result
-	//	}
-	//}
+	if stepDef.Else != "" {
+		if result := builder.traverseBranchForCondition(stepDef.Else, visited); result != "" {
+			return result
+		}
+	}
 
 	return ""
 }

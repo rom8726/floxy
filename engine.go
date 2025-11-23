@@ -1676,11 +1676,6 @@ func (engine *Engine) notifyJoinStepsForStep(
 		return err
 	}
 
-	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-
 	// Get Join step definition to check strategy
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err != nil {
@@ -1698,9 +1693,15 @@ func (engine *Engine) notifyJoinStepsForStep(
 		return fmt.Errorf("update join state for %s: %w", joinStepName, err)
 	}
 
+	var readySteps []WorkflowStep
 	// Additional check: don't consider join ready if there are still pending/running steps
 	if isReady {
-		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+		readySteps, err = engine.store.GetStepsByInstance(ctx, instanceID)
+		if err != nil {
+			return err
+		}
+
+		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, readySteps)
 		if hasPendingSteps {
 			isReady = false
 			_, _ = engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
@@ -1716,8 +1717,8 @@ func (engine *Engine) notifyJoinStepsForStep(
 
 	if isReady {
 		joinStepExists := false
-		for _, s := range steps {
-			if s.StepName == joinStepName {
+		for _, readyStep := range readySteps {
+			if readyStep.StepName == joinStepName {
 				joinStepExists = true
 
 				break
@@ -1726,9 +1727,9 @@ func (engine *Engine) notifyJoinStepsForStep(
 
 		if !joinStepExists {
 			var joinInput json.RawMessage
-			for _, s := range steps {
-				if s.StepName == completedStepName {
-					joinInput = s.Input
+			for _, readyStep := range readySteps {
+				if readyStep.StepName == completedStepName {
+					joinInput = readyStep.Input
 
 					break
 				}
@@ -1784,11 +1785,6 @@ func (engine *Engine) notifyJoinSteps(
 		return err
 	}
 
-	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-
 	for stepName, stepDef := range def.Definition.Steps {
 		if stepDef.Type != StepTypeJoin {
 			continue
@@ -1832,8 +1828,14 @@ func (engine *Engine) notifyJoinSteps(
 
 		// Additional check: don't consider join ready if there are still pending/running steps
 		// in parallel branches that could affect the join result
+		var readySteps []WorkflowStep
 		if isReady {
-			hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+			readySteps, err = engine.store.GetStepsByInstance(ctx, instanceID)
+			if err != nil {
+				return err
+			}
+
+			hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, readySteps)
 			if hasPendingSteps {
 				isReady = false
 				// Update the join state to reflect that it's not ready
@@ -1850,8 +1852,8 @@ func (engine *Engine) notifyJoinSteps(
 
 		if isReady {
 			joinStepExists := false
-			for _, s := range steps {
-				if s.StepName == stepName {
+			for _, readyStep := range readySteps {
+				if readyStep.StepName == stepName {
 					joinStepExists = true
 
 					break
@@ -1860,9 +1862,9 @@ func (engine *Engine) notifyJoinSteps(
 
 			if !joinStepExists {
 				var joinInput json.RawMessage
-				for _, s := range steps {
-					if s.StepName == completedStepName {
-						joinInput = s.Input
+				for _, readyStep := range readySteps {
+					if readyStep.StepName == completedStepName {
+						joinInput = readyStep.Input
 
 						break
 					}
