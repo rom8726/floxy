@@ -174,7 +174,7 @@ func TestEngine_RegisterWorkflow_InvalidDefinition(t *testing.T) {
 					},
 				},
 			},
-			expectErr: "step step1 references unknown step: unknown-step",
+			expectErr: "step \"step1\" references unknown step: \"unknown-step\"",
 		},
 		{
 			name: "unknown on_failure step",
@@ -194,7 +194,7 @@ func TestEngine_RegisterWorkflow_InvalidDefinition(t *testing.T) {
 					},
 				},
 			},
-			expectErr: "step step1 references unknown compensation step: unknown-step",
+			expectErr: "step \"step1\" references unknown compensation step: \"unknown-step\"",
 		},
 		{
 			name: "unknown parallel step",
@@ -214,7 +214,7 @@ func TestEngine_RegisterWorkflow_InvalidDefinition(t *testing.T) {
 					},
 				},
 			},
-			expectErr: "step step1 references unknown parallel step: unknown-step",
+			expectErr: "step \"step1\" references unknown parallel step: \"unknown-step\"",
 		},
 	}
 
@@ -370,21 +370,11 @@ func TestEngine_Start_NoStartStep(t *testing.T) {
 		},
 	}
 
-	instance := &WorkflowInstance{
-		ID:         123,
-		WorkflowID: workflowID,
-		Status:     StatusPending,
-		Input:      input,
-	}
-
 	mockTxManager.EXPECT().ReadCommitted(mock.Anything, mock.Anything).Run(func(ctx context.Context, fn func(ctx context.Context) error) {
 		fn(ctx)
 	}).Return(errors.New("no start step defined"))
 
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, workflowID).Return(definition, nil)
-	mockStore.EXPECT().CreateInstance(mock.Anything, workflowID, input).Return(instance, nil)
-	mockStore.EXPECT().LogEvent(mock.Anything, instance.ID, mock.Anything, EventWorkflowStarted, mock.Anything).Return(nil)
-	mockStore.EXPECT().UpdateInstanceStatus(mock.Anything, instance.ID, StatusRunning, mock.Anything, mock.Anything).Return(nil)
 
 	instanceID, err := engine.Start(context.Background(), workflowID, input)
 
@@ -950,8 +940,6 @@ func TestEngine_HandleStepSuccess_WithNextSteps(t *testing.T) {
 	mockStore.EXPECT().LogEvent(mock.Anything, instanceID, &stepID, EventStepCompleted, mock.Anything).Return(nil)
 	mockStore.EXPECT().GetInstance(mock.Anything, instanceID).Return(instance, nil)
 	mockStore.EXPECT().GetWorkflowDefinition(mock.Anything, instance.WorkflowID).Return(definition, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
-	mockStore.EXPECT().GetStepsByInstance(mock.Anything, instanceID).Return([]WorkflowStep{step}, nil)
 	mockStore.EXPECT().CreateStep(mock.Anything, mock.MatchedBy(func(s *WorkflowStep) bool {
 		return s.InstanceID == instanceID && s.StepName == "step2"
 	})).Return(nil)
@@ -1343,8 +1331,8 @@ func Test_validateDefinition_Success(t *testing.T) {
 		Definition: GraphDefinition{
 			Start: "A",
 			Steps: map[string]*StepDefinition{
-				"A": {Name: "A", Type: StepTypeTask, Next: []string{"B"}, Prev: rootStepName},
-				"B": {Name: "B", Type: StepTypeTask, Prev: "A"},
+				"A": {Name: "A", Type: StepTypeTask, Next: []string{"B"}, Prev: rootStepName, Handler: "handlerA"},
+				"B": {Name: "B", Type: StepTypeTask, Prev: "A", Handler: "handlerB"},
 			},
 		},
 	}

@@ -555,7 +555,7 @@ func (builder *Builder) Build() (*WorkflowDefinition, error) {
 		},
 	}
 
-	if err := builder.validate(def); err != nil {
+	if err := ValidateWorkflowDefinition(def); err != nil {
 		return nil, err
 	}
 
@@ -568,30 +568,30 @@ func (builder *Builder) Build() (*WorkflowDefinition, error) {
 	return def, nil
 }
 
-func (builder *Builder) validate(def *WorkflowDefinition) error {
+func ValidateWorkflowDefinition(def *WorkflowDefinition) error {
 	for stepName, stepDef := range def.Definition.Steps {
 		if err := validateStepName(stepName); err != nil {
-			return fmt.Errorf("builder %q: %w", builder.name, err)
+			return fmt.Errorf("def %q: %w", def.Name, err)
 		}
 
 		for _, nextStep := range stepDef.Next {
 			if _, ok := def.Definition.Steps[nextStep]; !ok {
-				return fmt.Errorf("builder %q: step %q references unknown step: %q",
-					builder.name, stepName, nextStep)
+				return fmt.Errorf("def %q: step %q references unknown step: %q",
+					def.Name, stepName, nextStep)
 			}
 		}
 
 		if stepDef.OnFailure != "" {
 			if _, ok := def.Definition.Steps[stepDef.OnFailure]; !ok {
-				return fmt.Errorf("builder %q: step %q references unknown compensation step: %q",
-					builder.name, stepName, stepDef.OnFailure)
+				return fmt.Errorf("def %q: step %q references unknown compensation step: %q",
+					def.Name, stepName, stepDef.OnFailure)
 			}
 		}
 
 		if stepDef.Else != "" {
 			if _, ok := def.Definition.Steps[stepDef.Else]; !ok {
-				return fmt.Errorf("builder %q: step %q references unknown else step: %q",
-					builder.name, stepName, stepDef.Else)
+				return fmt.Errorf("def %q: step %q references unknown else step: %q",
+					def.Name, stepName, stepDef.Else)
 			}
 		}
 
@@ -601,8 +601,8 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 				continue
 			}
 			if _, ok := def.Definition.Steps[parallelStep]; !ok {
-				return fmt.Errorf("builder %q: step %q references unknown parallel step: %q",
-					builder.name, stepName, parallelStep)
+				return fmt.Errorf("def %q: step %q references unknown parallel step: %q",
+					def.Name, stepName, parallelStep)
 			}
 		}
 
@@ -614,27 +614,27 @@ func (builder *Builder) validate(def *WorkflowDefinition) error {
 					continue
 				}
 				if _, ok := def.Definition.Steps[waitForStep]; !ok {
-					return fmt.Errorf("builder %q: join step %q references unknown step in waitFor: %q",
-						builder.name, stepName, waitForStep)
+					return fmt.Errorf("def %q: join step %q references unknown step in waitFor: %q",
+						def.Name, stepName, waitForStep)
 				}
 			}
 		}
 
 		if stepDef.Type == StepTypeTask && stepDef.Handler == "" {
-			return fmt.Errorf("builder %q: task step %q must have a handler", builder.name, stepName)
+			return fmt.Errorf("def %q: task step %q must have a handler", def.Name, stepName)
 		}
 	}
 
 	visited := make(map[string]bool)
-	err := builder.detectCycles(def.Definition.Start, def.Definition.Steps, visited, make(map[string]bool))
+	err := detectCycles(def.Definition.Start, def.Definition.Steps, visited, make(map[string]bool))
 	if err != nil {
-		return fmt.Errorf("builder %q: %w", builder.name, err)
+		return fmt.Errorf("def %q: %w", def.Name, err)
 	}
 
 	return nil
 }
 
-func (builder *Builder) detectCycles(
+func detectCycles(
 	current string,
 	steps map[string]*StepDefinition,
 	visited, recStack map[string]bool,
@@ -674,7 +674,7 @@ func (builder *Builder) detectCycles(
 		}
 
 		if !visited[next] {
-			if err := builder.detectCycles(next, steps, visited, recStack); err != nil {
+			if err := detectCycles(next, steps, visited, recStack); err != nil {
 				return err
 			}
 		} else if recStack[next] {
@@ -763,11 +763,11 @@ func (builder *Builder) traverseBranchForCondition(stepName string, visited map[
 	}
 
 	// Also check Else branch if exists
-	//if stepDef.Else != "" {
-	//	if result := builder.traverseBranchForCondition(stepDef.Else, visited); result != "" {
-	//		return result
-	//	}
-	//}
+	if stepDef.Else != "" {
+		if result := builder.traverseBranchForCondition(stepDef.Else, visited); result != "" {
+			return result
+		}
+	}
 
 	return ""
 }

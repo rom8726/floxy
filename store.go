@@ -73,6 +73,10 @@ func (store *StoreImpl) InvalidateDefinitionCache(id string) {
 }
 
 func (store *StoreImpl) SaveWorkflowDefinition(ctx context.Context, def *WorkflowDefinition) error {
+	if def == nil {
+		return errors.New("workflow definition is nil")
+	}
+
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -226,6 +230,10 @@ WHERE id = $1`
 }
 
 func (store *StoreImpl) CreateStep(ctx context.Context, step *WorkflowStep) error {
+	if step == nil {
+		return errors.New("workflow step is nil")
+	}
+
 	if step.IdempotencyKey == "" {
 		step.IdempotencyKey = uuid.NewString()
 	}
@@ -1155,6 +1163,10 @@ FOR UPDATE SKIP LOCKED`
 }
 
 func (store *StoreImpl) CreateCancelRequest(ctx context.Context, req *WorkflowCancelRequest) error {
+	if req == nil {
+		return errors.New("cancel request is nil")
+	}
+
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -1284,6 +1296,10 @@ FROM workflows.workflow_stats`
 }
 
 func (store *StoreImpl) CreateHumanDecision(ctx context.Context, decision *HumanDecisionRecord) error {
+	if decision == nil {
+		return errors.New("human decision is nil")
+	}
+
 	executor := store.getExecutor(ctx)
 
 	const query = `
@@ -1407,6 +1423,10 @@ func (store *StoreImpl) CreateDeadLetterRecord(
 	ctx context.Context,
 	rec *DeadLetterRecord,
 ) error {
+	if rec == nil {
+		return errors.New("dead letter record is nil")
+	}
+
 	executor := store.getExecutor(ctx)
 
 	const query = `

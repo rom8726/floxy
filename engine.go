@@ -164,6 +164,10 @@ func (engine *Engine) Start(ctx context.Context, workflowID string, input json.R
 			return fmt.Errorf("get workflow definition: %w", err)
 		}
 
+		if err := engine.validateDefinition(def); err != nil {
+			return fmt.Errorf("invalid workflow definition: %w", err)
+		}
+
 		instance, err := engine.store.CreateInstance(ctx, workflowID, input)
 		if err != nil {
 			return fmt.Errorf("create instance: %w", err)
@@ -323,6 +327,17 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 		}
 
+		// Do not execute skipped or paused steps
+		if step.Status == StepStatusSkipped ||
+			step.Status == StepStatusPaused ||
+			step.Status == StepStatusRolledBack {
+			if err := engine.store.RemoveFromQueue(ctx, step.ID); err != nil {
+				return fmt.Errorf("remove step from queue: %w", err)
+			}
+
+			return nil
+		}
+
 		// Check if this is a compensation
 		if step.Status == StepStatusCompensation {
 			// For distributed setup: if local engine doesn't have the compensation handler,
@@ -369,8 +384,6 @@ func (engine *Engine) ExecuteNext(ctx context.Context, workerID string) (empty b
 			}
 
 			return engine.executeCompensationStep(ctx, instance, step)
-		} else if step.Status == StepStatusRolledBack {
-			return nil
 		}
 
 		// Distributed handlers: if this is a task step and no local handler is registered,
@@ -919,7 +932,11 @@ func (engine *Engine) executeCompensationStep(ctx context.Context, instance *Wor
 			}
 
 			// Re-enqueue for retry
-			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, stepDef.Delay); err != nil {
+			retryDelay := CalculateRetryDelay(onFailureStep.RetryStrategy, onFailureStep.RetryDelay, newRetryCount)
+			if retryDelay == 0 {
+				retryDelay = onFailureStep.Delay
+			}
+			if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, retryDelay); err != nil {
 				return fmt.Errorf("enqueue compensation retry: %w", err)
 			}
 
@@ -1659,11 +1676,6 @@ func (engine *Engine) notifyJoinStepsForStep(
 		return err
 	}
 
-	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-
 	// Get Join step definition to check strategy
 	def, err := engine.store.GetWorkflowDefinition(ctx, instance.WorkflowID)
 	if err != nil {
@@ -1681,9 +1693,15 @@ func (engine *Engine) notifyJoinStepsForStep(
 		return fmt.Errorf("update join state for %s: %w", joinStepName, err)
 	}
 
+	var readySteps []WorkflowStep
 	// Additional check: don't consider join ready if there are still pending/running steps
 	if isReady {
-		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+		readySteps, err = engine.store.GetStepsByInstance(ctx, instanceID)
+		if err != nil {
+			return err
+		}
+
+		hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, readySteps)
 		if hasPendingSteps {
 			isReady = false
 			_, _ = engine.store.UpdateJoinState(ctx, instanceID, joinStepName, completedStepName, success)
@@ -1699,8 +1717,8 @@ func (engine *Engine) notifyJoinStepsForStep(
 
 	if isReady {
 		joinStepExists := false
-		for _, s := range steps {
-			if s.StepName == joinStepName {
+		for _, readyStep := range readySteps {
+			if readyStep.StepName == joinStepName {
 				joinStepExists = true
 
 				break
@@ -1709,9 +1727,9 @@ func (engine *Engine) notifyJoinStepsForStep(
 
 		if !joinStepExists {
 			var joinInput json.RawMessage
-			for _, s := range steps {
-				if s.StepName == completedStepName {
-					joinInput = s.Input
+			for _, readyStep := range readySteps {
+				if readyStep.StepName == completedStepName {
+					joinInput = readyStep.Input
 
 					break
 				}
@@ -1767,11 +1785,6 @@ func (engine *Engine) notifyJoinSteps(
 		return err
 	}
 
-	steps, err := engine.store.GetStepsByInstance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-
 	for stepName, stepDef := range def.Definition.Steps {
 		if stepDef.Type != StepTypeJoin {
 			continue
@@ -1815,8 +1828,14 @@ func (engine *Engine) notifyJoinSteps(
 
 		// Additional check: don't consider join ready if there are still pending/running steps
 		// in parallel branches that could affect the join result
+		var readySteps []WorkflowStep
 		if isReady {
-			hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, steps)
+			readySteps, err = engine.store.GetStepsByInstance(ctx, instanceID)
+			if err != nil {
+				return err
+			}
+
+			hasPendingSteps := engine.hasPendingStepsInParallelBranches(ctx, instanceID, stepDef, readySteps)
 			if hasPendingSteps {
 				isReady = false
 				// Update the join state to reflect that it's not ready
@@ -1833,8 +1852,8 @@ func (engine *Engine) notifyJoinSteps(
 
 		if isReady {
 			joinStepExists := false
-			for _, s := range steps {
-				if s.StepName == stepName {
+			for _, readyStep := range readySteps {
+				if readyStep.StepName == stepName {
 					joinStepExists = true
 
 					break
@@ -1843,9 +1862,9 @@ func (engine *Engine) notifyJoinSteps(
 
 			if !joinStepExists {
 				var joinInput json.RawMessage
-				for _, s := range steps {
-					if s.StepName == completedStepName {
-						joinInput = s.Input
+				for _, readyStep := range readySteps {
+					if readyStep.StepName == completedStepName {
+						joinInput = readyStep.Input
 
 						break
 					}
@@ -2010,7 +2029,7 @@ func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, inst
 	// Mark each step as requiring compensation and enqueue for processing
 	for idx, step := range stepsToRollback {
 		// Update step status to compensation with retry count = 0
-		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 1, StepStatusCompensation); err != nil {
+		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 0, StepStatusCompensation); err != nil {
 			slog.Warn("[floxy] failed to mark step for compensation", "step_id", step.ID, "error", err)
 			continue
 		}
@@ -2215,28 +2234,7 @@ func (engine *Engine) validateDefinition(def *WorkflowDefinition) error {
 		return fmt.Errorf("start step not found: %s", def.Definition.Start)
 	}
 
-	for stepName, stepDef := range def.Definition.Steps {
-		for _, nextStep := range stepDef.Next {
-			if _, ok := def.Definition.Steps[nextStep]; !ok {
-				return fmt.Errorf("step %s references unknown step: %s", stepName, nextStep)
-			}
-		}
-
-		if stepDef.OnFailure != "" {
-			if _, ok := def.Definition.Steps[stepDef.OnFailure]; !ok {
-				return fmt.Errorf("step %s references unknown compensation step: %s",
-					stepName, stepDef.OnFailure)
-			}
-		}
-
-		for _, parallelStep := range stepDef.Parallel {
-			if _, ok := def.Definition.Steps[parallelStep]; !ok {
-				return fmt.Errorf("step %s references unknown parallel step: %s", stepName, parallelStep)
-			}
-		}
-	}
-
-	return nil
+	return ValidateWorkflowDefinition(def)
 }
 
 func (engine *Engine) rollbackToSavePointOrRoot(
@@ -2448,7 +2446,10 @@ func (engine *Engine) rollbackStep(ctx context.Context, step *WorkflowStep, def 
 	}
 
 	// Enqueue compensation step for execution
-	retryDelay := CalculateRetryDelay(stepDef.RetryStrategy, stepDef.RetryDelay, newRetryCount)
+	retryDelay := CalculateRetryDelay(onFailureStep.RetryStrategy, onFailureStep.RetryDelay, newRetryCount)
+	if retryDelay == 0 {
+		retryDelay = onFailureStep.Delay
+	}
 	if err := engine.store.EnqueueStep(ctx, step.InstanceID, &step.ID, PriorityHigh, retryDelay); err != nil {
 		return fmt.Errorf("enqueue compensation step: %w", err)
 	}
