@@ -2023,7 +2023,7 @@ func (engine *Engine) enqueueCompletedStepsForRollback(ctx context.Context, inst
 	// Mark each step as requiring compensation and enqueue for processing
 	for idx, step := range stepsToRollback {
 		// Update step status to compensation with retry count = 0
-		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 1, StepStatusCompensation); err != nil {
+		if err := engine.store.UpdateStepCompensationRetry(ctx, step.ID, 0, StepStatusCompensation); err != nil {
 			slog.Warn("[floxy] failed to mark step for compensation", "step_id", step.ID, "error", err)
 			continue
 		}
